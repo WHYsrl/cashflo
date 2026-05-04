@@ -43,6 +43,7 @@ model Payment {
   supplierId String
   supplier   Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   type       PaymentType   // ACCONTO o SALDO
+  label      String?       // etichetta tranche (es. "Acconto 1", "Tranche 2", "Saldo finale")
   amount     Float
   dueDate    DateTime?     // scadenza
   paidDate   DateTime?     // data effettivo pagamento

@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom';
 import { api } from '../utils/api.js';
 import { formatCurrency, formatDate, statusLabel, statusColor } from '../utils/format.js';
 
+function payLabel(p) {
+  return p.label || (p.type === 'ACCONTO' ? 'Acconto' : 'Saldo');
+}
+
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -43,11 +47,12 @@ export default function Dashboard() {
           </div>
           <div className="table-wrap" style={{ marginTop: 12 }}>
             <table>
-              <thead><tr><th>Fornitore</th><th>Importo</th><th>Scadenza</th></tr></thead>
+              <thead><tr><th>Fornitore</th><th>Tranche</th><th>Importo</th><th>Scadenza</th></tr></thead>
               <tbody>
                 {data.overduePayments.map(p => (
                   <tr key={p.id}>
                     <td><Link to={`/suppliers/${p.supplierId}`}>{p.supplier?.alias || p.supplier?.businessName}</Link></td>
+                    <td>{payLabel(p)}</td>
                     <td>{formatCurrency(p.amount)}</td>
                     <td>{formatDate(p.dueDate)}</td>
                   </tr>
@@ -68,12 +73,12 @@ export default function Dashboard() {
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Fornitore</th><th>Tipo</th><th>Importo</th><th>Scadenza</th><th>Stato</th></tr></thead>
+              <thead><tr><th>Fornitore</th><th>Tranche</th><th>Importo</th><th>Scadenza</th><th>Stato</th></tr></thead>
               <tbody>
                 {data.upcomingPayments.map(p => (
                   <tr key={p.id}>
                     <td><Link to={`/suppliers/${p.supplierId}`}>{p.supplier?.alias || p.supplier?.businessName}</Link></td>
-                    <td>{p.type}</td>
+                    <td>{payLabel(p)}</td>
                     <td>{formatCurrency(p.amount)}</td>
                     <td>{formatDate(p.dueDate)}</td>
                     <td><span className="badge" style={{ background: statusColor(p.status) + '22', color: statusColor(p.status) }}>{statusLabel(p.status)}</span></td>

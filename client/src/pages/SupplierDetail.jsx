@@ -1,24 +1,28 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../utils/api.js';
-import { formatCurrency, formatDate, statusLabel, statusColor, typeLabel } from '../utils/format.js';
+import { formatCurrency, formatDate, statusLabel, statusColor } from '../utils/format.js';
 
 function PaymentModal({ supplierId, payment, onClose, onSave }) {
   const [form, setForm] = useState(payment || {
-    supplierId, type: 'ACCONTO', amount: '', dueDate: '', causale: '', invoiceRef: '', notes: '', status: 'PENDING'
+    supplierId, type: 'ACCONTO', label: '', amount: '', dueDate: '', paidDate: '', causale: '', invoiceRef: '', notes: '', status: 'PENDING'
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
   const handleSave = async () => {
     const data = { ...form, amount: parseFloat(form.amount) || 0 };
+    // Se lo stato è PAID e non c'è data pagamento, metti oggi
+    if (data.status === 'PAID' && !data.paidDate) data.paidDate = new Date().toISOString();
     if (payment?.id) await api.updatePayment(payment.id, data);
     else await api.createPayment(data);
     onSave();
   };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-title">{payment?.id ? 'Modifica Pagamento' : 'Nuovo Pagamento'}</div>
-        <div className="form-row">
+        <div className="form-row-3">
           <div className="form-group">
             <label className="form-label">Tipo</label>
             <select className="form-select" value={form.type} onChange={e => set('type', e.target.value)}>
@@ -27,13 +31,17 @@ function PaymentModal({ supplierId, payment, onClose, onSave }) {
             </select>
           </div>
           <div className="form-group">
+            <label className="form-label">Etichetta tranche</label>
+            <input className="form-input" value={form.label || ''} onChange={e => set('label', e.target.value)} placeholder="es. Acconto 1, Tranche 2, Saldo finale" />
+          </div>
+          <div className="form-group">
             <label className="form-label">Importo *</label>
             <input className="form-input" type="number" step="0.01" value={form.amount} onChange={e => set('amount', e.target.value)} />
           </div>
         </div>
-        <div className="form-row">
+        <div className="form-row-3">
           <div className="form-group">
-            <label className="form-label">Scadenza</label>
+            <label className="form-label">Scadenza pagamento</label>
             <input className="form-input" type="date" value={form.dueDate ? form.dueDate.substring(0, 10) : ''} onChange={e => set('dueDate', e.target.value)} />
           </div>
           <div className="form-group">
@@ -44,13 +52,11 @@ function PaymentModal({ supplierId, payment, onClose, onSave }) {
               <option value="PAID">Pagato</option>
             </select>
           </div>
-        </div>
-        {form.status === 'PAID' && (
           <div className="form-group">
-            <label className="form-label">Data Pagamento</label>
+            <label className="form-label">Data pagamento effettivo</label>
             <input className="form-input" type="date" value={form.paidDate ? form.paidDate.substring(0, 10) : ''} onChange={e => set('paidDate', e.target.value)} />
           </div>
-        )}
+        </div>
         <div className="form-group">
           <label className="form-label">Rif. Fattura/Preventivo</label>
           <input className="form-input" value={form.invoiceRef || ''} onChange={e => set('invoiceRef', e.target.value)} />
@@ -173,6 +179,9 @@ export default function SupplierDetail() {
   const totalPaid = supplier.payments.filter(p => p.status === 'PAID').reduce((a, p) => a + p.amount, 0);
   const totalDue = supplier.payments.filter(p => p.status !== 'PAID').reduce((a, p) => a + p.amount, 0);
 
+  // Etichetta pagamento: usa label custom oppure fallback a tipo
+  const payLabel = (p) => p.label || (p.type === 'ACCONTO' ? 'Acconto' : 'Saldo');
+
   return (
     <div>
       <button className="btn btn-sm" onClick={() => navigate('/suppliers')} style={{ marginBottom: 16 }}>← Fornitori</button>
@@ -197,7 +206,7 @@ export default function SupplierDetail() {
           <div className="form-group"><label className="form-label">IBAN</label><input className="form-input" value={editForm.iban || ''} onChange={e => setEditForm(f => ({ ...f, iban: e.target.value }))} /></div>
           <div className="form-row">
             <div className="form-group"><label className="form-label">Servizio</label><input className="form-input" value={editForm.service || ''} onChange={e => setEditForm(f => ({ ...f, service: e.target.value }))} /></div>
-            <div className="form-group"><label className="form-label">Data Evento</label><input className="form-input" type="date" value={editForm.eventDate ? editForm.eventDate.substring(0, 10) : ''} onChange={e => setEditForm(f => ({ ...f, eventDate: e.target.value }))} /></div>
+            <div className="form-group"><label className="form-label">P. IVA</label><input className="form-input" value={editForm.vatNumber || ''} onChange={e => setEditForm(f => ({ ...f, vatNumber: e.target.value }))} /></div>
           </div>
           <div className="form-group"><label className="form-label">Note</label><textarea className="form-textarea" value={editForm.notes || ''} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} /></div>
           <button className="btn btn-primary" onClick={handleSaveEdit}>Salva Modifiche</button>
@@ -207,8 +216,8 @@ export default function SupplierDetail() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, fontSize: 14 }}>
             <div><span style={{ color: 'var(--text-secondary)' }}>IBAN:</span> <strong>{supplier.iban || '-'}</strong></div>
             <div><span style={{ color: 'var(--text-secondary)' }}>Servizio:</span> <strong>{supplier.service || '-'}</strong></div>
-            <div><span style={{ color: 'var(--text-secondary)' }}>Data Evento:</span> <strong>{formatDate(supplier.eventDate)}</strong></div>
             <div><span style={{ color: 'var(--text-secondary)' }}>P. IVA:</span> <strong>{supplier.vatNumber || '-'}</strong></div>
+            <div><span style={{ color: 'var(--text-secondary)' }}>Email:</span> <strong>{supplier.email || '-'}</strong></div>
             {supplier.notes && <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--text-secondary)' }}>Note:</span> {supplier.notes}</div>}
           </div>
         </div>
@@ -248,18 +257,21 @@ export default function SupplierDetail() {
       {/* Payments section */}
       <div className="card">
         <div className="card-header">
-          <div className="card-title">Pagamenti</div>
+          <div className="card-title">Scadenze e Pagamenti</div>
           <button className="btn btn-sm btn-primary" onClick={() => setPaymentModal({})}>+ Pagamento</button>
         </div>
-        {supplier.payments.length === 0 ? <div className="empty">Nessun pagamento registrato</div> : (
+        {supplier.payments.length === 0 ? (
+          <div className="empty">Nessun pagamento registrato — aggiungi acconti, tranches e saldo</div>
+        ) : (
           <table>
-            <thead><tr><th>Tipo</th><th>Importo</th><th>Scadenza</th><th>Stato</th><th>Causale</th><th>Rif.</th><th></th></tr></thead>
+            <thead><tr><th>Tranche</th><th>Importo</th><th>Scadenza</th><th>Pagato il</th><th>Stato</th><th>Causale</th><th>Rif.</th><th></th></tr></thead>
             <tbody>
               {supplier.payments.map(p => (
                 <tr key={p.id}>
-                  <td>{typeLabel(p.type)}</td>
+                  <td style={{ fontWeight: 500 }}>{payLabel(p)}</td>
                   <td style={{ fontWeight: 600 }}>{formatCurrency(p.amount)}</td>
                   <td>{formatDate(p.dueDate)}</td>
+                  <td>{p.status === 'PAID' ? formatDate(p.paidDate) : '-'}</td>
                   <td><span className="badge" style={{ background: statusColor(p.status) + '22', color: statusColor(p.status) }}>{statusLabel(p.status)}</span></td>
                   <td style={{ fontSize: 12 }}>{p.causale || '-'}</td>
                   <td style={{ fontSize: 12 }}>{p.invoiceRef || '-'}</td>

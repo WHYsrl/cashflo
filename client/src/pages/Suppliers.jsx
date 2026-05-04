@@ -3,21 +3,33 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../utils/api.js';
 import { formatCurrency, formatDate, statusColor, statusLabel } from '../utils/format.js';
 
-function SupplierModal({ supplier, onClose, onSave }) {
+function SupplierModal({ supplier, onClose, onSaved }) {
   const [form, setForm] = useState(supplier || {
-    alias: '', businessName: '', iban: '', vatNumber: '', email: '', phone: '', service: '', eventDate: '', notes: ''
+    alias: '', businessName: '', iban: '', vatNumber: '', email: '', phone: '', service: '', notes: ''
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const navigate = useNavigate();
+
   const handleSave = async () => {
-    if (supplier?.id) await api.updateSupplier(supplier.id, form);
-    else await api.createSupplier(form);
-    onSave();
+    if (supplier?.id) {
+      await api.updateSupplier(supplier.id, form);
+      onSaved();
+    } else {
+      const created = await api.createSupplier(form);
+      onClose();
+      navigate(`/suppliers/${created.id}`);
+    }
   };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-title">{supplier?.id ? 'Modifica Fornitore' : 'Nuovo Fornitore'}</div>
+        <div className="modal-title">{supplier?.id ? 'Modifica Fornitore' : 'Nuovo Fornitore — Dati Anagrafici'}</div>
+        {!supplier?.id && (
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
+            Dopo il salvataggio potrai aggiungere costi, scadenze e pagamenti dalla scheda del fornitore.
+          </p>
+        )}
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">Nome breve *</label>
@@ -42,15 +54,9 @@ function SupplierModal({ supplier, onClose, onSave }) {
             <input className="form-input" value={form.email || ''} onChange={e => set('email', e.target.value)} />
           </div>
         </div>
-        <div className="form-row">
-          <div className="form-group">
-            <label className="form-label">Servizio</label>
-            <input className="form-input" value={form.service || ''} onChange={e => set('service', e.target.value)} placeholder="es. LOCATION DINNER 19.06" />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Data Evento</label>
-            <input className="form-input" type="date" value={form.eventDate ? form.eventDate.substring(0, 10) : ''} onChange={e => set('eventDate', e.target.value)} />
-          </div>
+        <div className="form-group">
+          <label className="form-label">Servizio</label>
+          <input className="form-input" value={form.service || ''} onChange={e => set('service', e.target.value)} placeholder="es. LOCATION DINNER 19.06" />
         </div>
         <div className="form-group">
           <label className="form-label">Note</label>
@@ -58,7 +64,9 @@ function SupplierModal({ supplier, onClose, onSave }) {
         </div>
         <div className="modal-actions">
           <button className="btn" onClick={onClose}>Annulla</button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={!form.alias}>Salva</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={!form.alias}>
+            {supplier?.id ? 'Salva' : 'Salva e vai alla scheda →'}
+          </button>
         </div>
       </div>
     </div>
@@ -68,7 +76,7 @@ function SupplierModal({ supplier, onClose, onSave }) {
 export default function Suppliers() {
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState(null); // null | {} | supplier
+  const [modal, setModal] = useState(null);
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
 
@@ -82,6 +90,12 @@ export default function Suppliers() {
   const totalPaid = (s) => s.payments.filter(p => p.status === 'PAID').reduce((a, p) => a + p.amount, 0);
   const totalDue = (s) => s.payments.filter(p => p.status !== 'PAID').reduce((a, p) => a + p.amount, 0);
   const totalCost = (s) => s.costs.reduce((a, c) => a + (c.totalGross || c.amountNet || 0), 0);
+
+  // Prossima scadenza non pagata
+  const nextDue = (s) => {
+    const pending = s.payments.filter(p => p.status !== 'PAID' && p.dueDate).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+    return pending[0]?.dueDate || null;
+  };
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
@@ -101,18 +115,19 @@ export default function Suppliers() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Fornitore</th><th>Ragione Sociale</th><th>Servizio</th><th>Data</th><th>Costo</th><th>Pagato</th><th>Da Pagare</th><th>Stato</th></tr>
+                <tr><th>Fornitore</th><th>Ragione Sociale</th><th>Servizio</th><th>Pross. Scadenza</th><th>Costo</th><th>Pagato</th><th>Da Pagare</th><th>Stato</th></tr>
               </thead>
               <tbody>
                 {filtered.map(s => {
                   const due = totalDue(s);
                   const hasOverdue = s.payments.some(p => p.status === 'OVERDUE');
+                  const nd = nextDue(s);
                   return (
                     <tr key={s.id} className="clickable-row" onClick={() => navigate(`/suppliers/${s.id}`)}>
                       <td style={{ fontWeight: 600 }}>{s.alias}</td>
                       <td>{s.businessName || '-'}</td>
                       <td>{s.service || '-'}</td>
-                      <td>{formatDate(s.eventDate)}</td>
+                      <td>{nd ? formatDate(nd) : '-'}</td>
                       <td>{formatCurrency(totalCost(s))}</td>
                       <td style={{ color: 'var(--success)' }}>{formatCurrency(totalPaid(s))}</td>
                       <td style={{ color: due > 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>{formatCurrency(due)}</td>
@@ -129,7 +144,7 @@ export default function Suppliers() {
           </div>
         </div>
       )}
-      {modal !== null && <SupplierModal supplier={modal.id ? modal : undefined} onClose={() => setModal(null)} onSave={() => { setModal(null); load(); }} />}
+      {modal !== null && <SupplierModal supplier={modal.id ? modal : undefined} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
     </div>
   );
 }
