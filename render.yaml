@@ -11,8 +11,8 @@ services:
     runtime: node
     plan: starter
     region: frankfurt
-    buildCommand: npm install && npx prisma generate && npm run build
-    startCommand: npx prisma migrate deploy && npm start
+    buildCommand: npm install && npx prisma generate && cd client && npm install && npx vite build && cd ..
+    startCommand: npx prisma db push && npm start
     envVars:
       - key: DATABASE_URL
         fromDatabase:
