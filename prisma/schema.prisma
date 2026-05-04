@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Supplier {
+  id           String    @id @default(cuid())
+  alias        String    // nome breve (es. "VILLA SOSPISIO")
+  businessName String?   // ragione sociale (es. "MIRO' SRL")
+  iban         String?
+  vatNumber    String?   // partita IVA
+  email        String?
+  phone        String?
+  service      String?   // descrizione servizio (es. "LOCATION DINNER 19.06")
+  eventDate    DateTime? // data evento collegata
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  costs     Cost[]
+  payments  Payment[]
+  documents Document[]
+}
+
+model Cost {
+  id         String  @id @default(cuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  amountNet  Float   // importo netto
+  vatRate    Float?  // aliquota IVA (es. 10, 22)
+  vatAmount  Float?  // importo IVA
+  totalGross Float?  // totale ivato
+  notes      String?
+  createdAt  DateTime @default(now())
+}
+
+model Payment {
+  id         String        @id @default(cuid())
+  supplierId String
+  supplier   Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  type       PaymentType   // ACCONTO o SALDO
+  amount     Float
+  dueDate    DateTime?     // scadenza
+  paidDate   DateTime?     // data effettivo pagamento
+  status     PaymentStatus @default(PENDING)
+  invoiceRef String?       // riferimento fattura/preventivo
+  causale    String?       // causale per bonifico
+  notes      String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+}
+
+model Document {
+  id         String       @id @default(cuid())
+  supplierId String?
+  supplier   Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  type       DocumentType
+  number     String?      // numero fattura/preventivo
+  fileName   String
+  filePath   String
+  mimeType   String?
+  rawText    String?      // testo estratto dal documento
+  parsedData Json?        // dati strutturati estratti dall'AI
+  createdAt  DateTime     @default(now())
+}
+
+enum PaymentType {
+  ACCONTO
+  SALDO
+}
+
+enum PaymentStatus {
+  PENDING   // da pagare
+  SCHEDULED // programmato
+  PAID      // pagato
+  OVERDUE   // scaduto
+}
+
+enum DocumentType {
+  PREVENTIVO
+  FATTURA
+  CONTRATTO
+  RICEVUTA
+  ALTRO
+}

@@ -1,0 +1,29 @@
+{
+  "name": "supplier-cashflow",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "node --watch server/index.js",
+    "dev:client": "cd client && npx vite --port 5173",
+    "build": "cd client && npm install && npx vite build",
+    "start": "node server/index.js",
+    "db:migrate": "npx prisma migrate deploy",
+    "db:push": "npx prisma db push",
+    "db:seed": "node prisma/seed.js",
+    "postinstall": "npx prisma generate"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@prisma/client": "^6.2.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1",
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "prisma": "^6.2.0"
+  }
+}
