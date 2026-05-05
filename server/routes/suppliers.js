@@ -12,7 +12,7 @@ router.get('/', async (req, res) => {
         payments: true,
         documents: { select: { id: true, type: true, fileName: true } }
       },
-      orderBy: { eventDate: 'asc' }
+      orderBy: { alias: 'asc' }
     });
     res.json(suppliers);
   } catch (err) {
