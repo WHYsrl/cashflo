@@ -60,7 +60,13 @@ export default function AIParser() {
         await api.updateSupplier(existing.id, {
           iban: parsed.iban || existing.iban,
           vatNumber: parsed.vatNumber || existing.vatNumber,
-          businessName: parsed.businessName || existing.businessName
+          businessName: parsed.businessName || existing.businessName,
+          email: parsed.email || existing.email,
+          phone: parsed.phone || existing.phone,
+          mobile: parsed.mobile || existing.mobile,
+          contactPerson: parsed.contactPerson || existing.contactPerson,
+          serviceSummary: parsed.serviceSummary || existing.serviceSummary,
+          serviceDescription: parsed.serviceDescription || existing.serviceDescription
         });
         if (parsed.costs?.amountNet) {
           await api.addCost(existing.id, {
@@ -76,6 +82,7 @@ export default function AIParser() {
             await api.createPayment({
               supplierId: existing.id,
               type: pay.type || 'ACCONTO',
+              label: pay.label || null,
               amount: pay.amount,
               dueDate: pay.dueDate || null,
               causale: pay.description || null,
@@ -92,8 +99,12 @@ export default function AIParser() {
           businessName: parsed.businessName,
           iban: parsed.iban,
           vatNumber: parsed.vatNumber,
-          service: parsed.service,
-          eventDate: parsed.eventDate,
+          email: parsed.email,
+          phone: parsed.phone,
+          mobile: parsed.mobile,
+          contactPerson: parsed.contactPerson,
+          serviceSummary: parsed.serviceSummary,
+          serviceDescription: parsed.serviceDescription,
           notes: parsed.notes,
           costs: parsed.costs?.amountNet ? [{
             amountNet: parsed.costs.amountNet,
@@ -103,6 +114,7 @@ export default function AIParser() {
           }] : [],
           payments: parsed.payments?.map(pay => ({
             type: pay.type || 'ACCONTO',
+            label: pay.label || null,
             amount: pay.amount,
             dueDate: pay.dueDate || null,
             causale: pay.description || null,
@@ -218,8 +230,24 @@ export default function AIParser() {
               <input className="form-input" value={parsed.iban || ''} onChange={e => updateParsedField('iban', e.target.value)} />
             </div>
             <div className="form-group">
-              <label className="form-label">Servizio</label>
-              <input className="form-input" value={parsed.service || ''} onChange={e => updateParsedField('service', e.target.value)} />
+              <label className="form-label">Email</label>
+              <input className="form-input" value={parsed.email || ''} onChange={e => updateParsedField('email', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Referente</label>
+              <input className="form-input" value={parsed.contactPerson || ''} onChange={e => updateParsedField('contactPerson', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Telefono fisso</label>
+              <input className="form-input" value={parsed.phone || ''} onChange={e => updateParsedField('phone', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Cellulare</label>
+              <input className="form-input" value={parsed.mobile || ''} onChange={e => updateParsedField('mobile', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Sintesi Servizio</label>
+              <input className="form-input" value={parsed.serviceSummary || ''} onChange={e => updateParsedField('serviceSummary', e.target.value)} placeholder="es. DINNER 19.06" />
             </div>
             <div className="form-group">
               <label className="form-label">Tipo Documento</label>
@@ -235,10 +263,10 @@ export default function AIParser() {
               <label className="form-label">N. Documento</label>
               <input className="form-input" value={parsed.invoiceNumber || ''} onChange={e => updateParsedField('invoiceNumber', e.target.value)} />
             </div>
-            <div className="form-group">
-              <label className="form-label">Data Evento</label>
-              <input className="form-input" type="date" value={parsed.eventDate || ''} onChange={e => updateParsedField('eventDate', e.target.value)} />
-            </div>
+          </div>
+          <div className="form-group" style={{ marginBottom: 16 }}>
+            <label className="form-label">Descrizione estesa servizio</label>
+            <textarea className="form-textarea" value={parsed.serviceDescription || ''} onChange={e => updateParsedField('serviceDescription', e.target.value)} placeholder="Descrizione dettagliata del servizio fornito..." />
           </div>
 
           {parsed.costs && (
@@ -269,13 +297,17 @@ export default function AIParser() {
             <div>
               <div style={{ fontWeight: 600, marginBottom: 8 }}>Pagamenti</div>
               {parsed.payments.map((pay, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr', gap: 8, marginBottom: 8, padding: 8, background: '#f8fafc', borderRadius: 6 }}>
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 1fr 2fr', gap: 8, marginBottom: 8, padding: 8, background: '#f8fafc', borderRadius: 6 }}>
                   <div className="form-group">
                     <label className="form-label">Tipo</label>
                     <select className="form-select" value={pay.type || 'ACCONTO'} onChange={e => updateParsedField(`payments.${i}.type`, e.target.value)}>
                       <option value="ACCONTO">Acconto</option>
                       <option value="SALDO">Saldo</option>
                     </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Tranche</label>
+                    <input className="form-input" value={pay.label || ''} onChange={e => updateParsedField(`payments.${i}.label`, e.target.value)} placeholder="es. Primo deposito" />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Importo</label>

@@ -5,7 +5,9 @@ import { formatCurrency, formatDate, statusColor, statusLabel } from '../utils/f
 
 function SupplierModal({ supplier, onClose, onSaved }) {
   const [form, setForm] = useState(supplier || {
-    alias: '', businessName: '', iban: '', vatNumber: '', email: '', phone: '', service: '', notes: ''
+    alias: '', businessName: '', iban: '', vatNumber: '', email: '',
+    phone: '', mobile: '', contactPerson: '',
+    serviceSummary: '', serviceDescription: '', notes: ''
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const navigate = useNavigate();
@@ -44,7 +46,7 @@ function SupplierModal({ supplier, onClose, onSaved }) {
           <label className="form-label">IBAN</label>
           <input className="form-input" value={form.iban || ''} onChange={e => set('iban', e.target.value)} />
         </div>
-        <div className="form-row">
+        <div className="form-row-3">
           <div className="form-group">
             <label className="form-label">P. IVA</label>
             <input className="form-input" value={form.vatNumber || ''} onChange={e => set('vatNumber', e.target.value)} />
@@ -53,10 +55,28 @@ function SupplierModal({ supplier, onClose, onSaved }) {
             <label className="form-label">Email</label>
             <input className="form-input" value={form.email || ''} onChange={e => set('email', e.target.value)} />
           </div>
+          <div className="form-group">
+            <label className="form-label">Referente/i</label>
+            <input className="form-input" value={form.contactPerson || ''} onChange={e => set('contactPerson', e.target.value)} placeholder="es. Mario Rossi, Laura Bianchi" />
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Telefono fisso</label>
+            <input className="form-input" value={form.phone || ''} onChange={e => set('phone', e.target.value)} placeholder="es. 06 1234567" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Cellulare</label>
+            <input className="form-input" value={form.mobile || ''} onChange={e => set('mobile', e.target.value)} placeholder="es. 333 1234567" />
+          </div>
         </div>
         <div className="form-group">
-          <label className="form-label">Servizio</label>
-          <input className="form-input" value={form.service || ''} onChange={e => set('service', e.target.value)} placeholder="es. LOCATION DINNER 19.06" />
+          <label className="form-label">Sintesi servizio</label>
+          <input className="form-input" value={form.serviceSummary || ''} onChange={e => set('serviceSummary', e.target.value)} placeholder="es. DINNER 19.06" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Descrizione estesa servizio</label>
+          <textarea className="form-textarea" value={form.serviceDescription || ''} onChange={e => set('serviceDescription', e.target.value)} placeholder="Descrizione dettagliata del servizio fornito..." />
         </div>
         <div className="form-group">
           <label className="form-label">Note</label>
@@ -84,14 +104,13 @@ export default function Suppliers() {
   useEffect(() => { load(); }, []);
 
   const filtered = suppliers.filter(s =>
-    (s.alias + ' ' + (s.businessName || '') + ' ' + (s.service || '')).toLowerCase().includes(search.toLowerCase())
+    (s.alias + ' ' + (s.businessName || '') + ' ' + (s.serviceSummary || '') + ' ' + (s.contactPerson || '')).toLowerCase().includes(search.toLowerCase())
   );
 
   const totalPaid = (s) => s.payments.filter(p => p.status === 'PAID').reduce((a, p) => a + p.amount, 0);
   const totalDue = (s) => s.payments.filter(p => p.status !== 'PAID').reduce((a, p) => a + p.amount, 0);
   const totalCost = (s) => s.costs.reduce((a, c) => a + (c.totalGross || c.amountNet || 0), 0);
 
-  // Prossima scadenza non pagata
   const nextDue = (s) => {
     const pending = s.payments.filter(p => p.status !== 'PAID' && p.dueDate).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
     return pending[0]?.dueDate || null;
@@ -106,7 +125,7 @@ export default function Suppliers() {
         <button className="btn btn-primary" onClick={() => setModal({})}>+ Nuovo Fornitore</button>
       </div>
       <div style={{ marginBottom: 16 }}>
-        <input className="form-input" placeholder="Cerca fornitore..." value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: 360 }} />
+        <input className="form-input" placeholder="Cerca fornitore, referente..." value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: 360 }} />
       </div>
       {filtered.length === 0 ? (
         <div className="empty">Nessun fornitore trovato</div>
@@ -115,7 +134,7 @@ export default function Suppliers() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Fornitore</th><th>Ragione Sociale</th><th>Servizio</th><th>Pross. Scadenza</th><th>Costo</th><th>Pagato</th><th>Da Pagare</th><th>Stato</th></tr>
+                <tr><th>Fornitore</th><th>Ragione Sociale</th><th>Servizio</th><th>Referente</th><th>Pross. Scadenza</th><th>Costo</th><th>Pagato</th><th>Da Pagare</th><th>Stato</th></tr>
               </thead>
               <tbody>
                 {filtered.map(s => {
@@ -126,7 +145,8 @@ export default function Suppliers() {
                     <tr key={s.id} className="clickable-row" onClick={() => navigate(`/suppliers/${s.id}`)}>
                       <td style={{ fontWeight: 600 }}>{s.alias}</td>
                       <td>{s.businessName || '-'}</td>
-                      <td>{s.service || '-'}</td>
+                      <td>{s.serviceSummary || '-'}</td>
+                      <td style={{ fontSize: 12 }}>{s.contactPerson || '-'}</td>
                       <td>{nd ? formatDate(nd) : '-'}</td>
                       <td>{formatCurrency(totalCost(s))}</td>
                       <td style={{ color: 'var(--success)' }}>{formatCurrency(totalPaid(s))}</td>

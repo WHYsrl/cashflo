@@ -9,15 +9,17 @@ datasource db {
 
 model Supplier {
   id           String    @id @default(cuid())
-  alias        String    // nome breve (es. "VILLA SOSPISIO")
-  businessName String?   // ragione sociale (es. "MIRO' SRL")
-  iban         String?
-  vatNumber    String?   // partita IVA
-  email        String?
-  phone        String?
-  service      String?   // descrizione servizio (es. "LOCATION DINNER 19.06")
-  eventDate    DateTime? // data evento collegata
-  notes        String?
+  alias              String    // nome breve (es. "VILLA SOSPISIO")
+  businessName       String?   // ragione sociale (es. "MIRO' SRL")
+  iban               String?
+  vatNumber          String?   // partita IVA
+  email              String?
+  phone              String?   // telefono fisso
+  mobile             String?   // cellulare
+  contactPerson      String?   // referente/i (es. "Mario Rossi, Laura Bianchi")
+  serviceSummary     String?   // sintesi servizio (es. "DINNER 19.06")
+  serviceDescription String?   // descrizione estesa del servizio
+  notes              String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

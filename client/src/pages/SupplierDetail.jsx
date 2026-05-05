@@ -204,10 +204,17 @@ export default function SupplierDetail() {
             <div className="form-group"><label className="form-label">Ragione Sociale</label><input className="form-input" value={editForm.businessName || ''} onChange={e => setEditForm(f => ({ ...f, businessName: e.target.value }))} /></div>
           </div>
           <div className="form-group"><label className="form-label">IBAN</label><input className="form-input" value={editForm.iban || ''} onChange={e => setEditForm(f => ({ ...f, iban: e.target.value }))} /></div>
-          <div className="form-row">
-            <div className="form-group"><label className="form-label">Servizio</label><input className="form-input" value={editForm.service || ''} onChange={e => setEditForm(f => ({ ...f, service: e.target.value }))} /></div>
+          <div className="form-row-3">
             <div className="form-group"><label className="form-label">P. IVA</label><input className="form-input" value={editForm.vatNumber || ''} onChange={e => setEditForm(f => ({ ...f, vatNumber: e.target.value }))} /></div>
+            <div className="form-group"><label className="form-label">Email</label><input className="form-input" value={editForm.email || ''} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} /></div>
+            <div className="form-group"><label className="form-label">Referente/i</label><input className="form-input" value={editForm.contactPerson || ''} onChange={e => setEditForm(f => ({ ...f, contactPerson: e.target.value }))} /></div>
           </div>
+          <div className="form-row">
+            <div className="form-group"><label className="form-label">Telefono fisso</label><input className="form-input" value={editForm.phone || ''} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} /></div>
+            <div className="form-group"><label className="form-label">Cellulare</label><input className="form-input" value={editForm.mobile || ''} onChange={e => setEditForm(f => ({ ...f, mobile: e.target.value }))} /></div>
+          </div>
+          <div className="form-group"><label className="form-label">Sintesi servizio</label><input className="form-input" value={editForm.serviceSummary || ''} onChange={e => setEditForm(f => ({ ...f, serviceSummary: e.target.value }))} /></div>
+          <div className="form-group"><label className="form-label">Descrizione estesa servizio</label><textarea className="form-textarea" value={editForm.serviceDescription || ''} onChange={e => setEditForm(f => ({ ...f, serviceDescription: e.target.value }))} /></div>
           <div className="form-group"><label className="form-label">Note</label><textarea className="form-textarea" value={editForm.notes || ''} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} /></div>
           <button className="btn btn-primary" onClick={handleSaveEdit}>Salva Modifiche</button>
         </div>
@@ -215,9 +222,12 @@ export default function SupplierDetail() {
         <div className="card" style={{ marginBottom: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, fontSize: 14 }}>
             <div><span style={{ color: 'var(--text-secondary)' }}>IBAN:</span> <strong>{supplier.iban || '-'}</strong></div>
-            <div><span style={{ color: 'var(--text-secondary)' }}>Servizio:</span> <strong>{supplier.service || '-'}</strong></div>
+            <div><span style={{ color: 'var(--text-secondary)' }}>Servizio:</span> <strong>{supplier.serviceSummary || '-'}</strong></div>
             <div><span style={{ color: 'var(--text-secondary)' }}>P. IVA:</span> <strong>{supplier.vatNumber || '-'}</strong></div>
             <div><span style={{ color: 'var(--text-secondary)' }}>Email:</span> <strong>{supplier.email || '-'}</strong></div>
+            <div><span style={{ color: 'var(--text-secondary)' }}>Referente/i:</span> <strong>{supplier.contactPerson || '-'}</strong></div>
+            <div><span style={{ color: 'var(--text-secondary)' }}>Tel:</span> <strong>{[supplier.phone, supplier.mobile].filter(Boolean).join(' / ') || '-'}</strong></div>
+            {supplier.serviceDescription && <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--text-secondary)' }}>Dettaglio servizio:</span> {supplier.serviceDescription}</div>}
             {supplier.notes && <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--text-secondary)' }}>Note:</span> {supplier.notes}</div>}
           </div>
         </div>

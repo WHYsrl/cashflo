@@ -37,11 +37,10 @@ router.get('/:id', async (req, res) => {
 // POST create supplier
 router.post('/', async (req, res) => {
   try {
-    const { alias, businessName, iban, vatNumber, email, phone, service, eventDate, notes, costs, payments } = req.body;
+    const { alias, businessName, iban, vatNumber, email, phone, mobile, contactPerson, serviceSummary, serviceDescription, notes, costs, payments } = req.body;
     const supplier = await prisma.supplier.create({
       data: {
-        alias, businessName, iban, vatNumber, email, phone, service,
-        eventDate: eventDate ? new Date(eventDate) : null,
+        alias, businessName, iban, vatNumber, email, phone, mobile, contactPerson, serviceSummary, serviceDescription,
         notes,
         costs: costs ? { create: costs } : undefined,
         payments: payments ? {
@@ -63,12 +62,11 @@ router.post('/', async (req, res) => {
 // PUT update supplier
 router.put('/:id', async (req, res) => {
   try {
-    const { alias, businessName, iban, vatNumber, email, phone, service, eventDate, notes } = req.body;
+    const { alias, businessName, iban, vatNumber, email, phone, mobile, contactPerson, serviceSummary, serviceDescription, notes } = req.body;
     const supplier = await prisma.supplier.update({
       where: { id: req.params.id },
       data: {
-        alias, businessName, iban, vatNumber, email, phone, service,
-        eventDate: eventDate ? new Date(eventDate) : null, notes
+        alias, businessName, iban, vatNumber, email, phone, mobile, contactPerson, serviceSummary, serviceDescription, notes
       },
       include: { costs: true, payments: true, documents: true }
     });

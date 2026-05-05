@@ -18,14 +18,18 @@ const EXTRACTION_PROMPT = `Sei un assistente specializzato nell'estrazione dati 
 Analizza il documento fornito e restituisci un JSON con questa struttura:
 
 {
-  "supplierAlias": "nome breve del fornitore",
-  "businessName": "ragione sociale completa",
+  "supplierAlias": "nome breve del fornitore (es. HASSLER, PALOMBINI)",
+  "businessName": "ragione sociale completa (es. HASSLER ROMA SPA)",
   "vatNumber": "partita IVA",
   "iban": "IBAN se presente",
-  "service": "descrizione del servizio",
+  "email": "email se presente",
+  "phone": "telefono fisso se presente",
+  "mobile": "cellulare se presente",
+  "contactPerson": "nome del referente o persona di contatto se presente",
+  "serviceSummary": "sintesi breve del servizio, formato compatto tipo DINNER 19.06, LUNCH 18.06, LOCATION 17.06",
+  "serviceDescription": "descrizione estesa e dettagliata del servizio fornito (menu, allestimento, location, etc.)",
   "invoiceNumber": "numero fattura o preventivo",
   "documentType": "FATTURA | PREVENTIVO | CONTRATTO | RICEVUTA",
-  "eventDate": "data evento in formato YYYY-MM-DD se presente",
   "costs": {
     "amountNet": numero netto,
     "vatRate": aliquota IVA come numero (es. 22),
@@ -35,15 +39,16 @@ Analizza il documento fornito e restituisci un JSON con questa struttura:
   "payments": [
     {
       "type": "ACCONTO | SALDO",
+      "label": "etichetta tranche (es. Primo deposito, Secondo deposito, Saldo finale)",
       "amount": importo,
       "dueDate": "YYYY-MM-DD se specificato",
       "description": "descrizione del pagamento"
     }
   ],
-  "notes": "altre informazioni rilevanti"
+  "notes": "altre informazioni rilevanti (condizioni di cancellazione, extra, etc.)"
 }
 
-Se un campo non è presente nel documento, usa null. Cerca di estrarre tutti i dettagli di pagamento (acconti, saldi, scadenze). Rispondi SOLO con il JSON, senza commenti.`;
+Se un campo non è presente nel documento, usa null. Cerca di estrarre TUTTI i dettagli di pagamento: acconti, depositi, tranches, saldi, con relative scadenze. Rispondi SOLO con il JSON, senza commenti.`;
 
 // POST parse document with AI (file upload)
 router.post('/parse-document', upload.single('file'), async (req, res) => {
