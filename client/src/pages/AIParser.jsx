@@ -78,7 +78,7 @@ export default function AIParser() {
           });
         }
         if (parsed.payments?.length) {
-          for (const pay of parsed.payments) {
+          for (const pay of parsed.payments.filter(p => p.amount && p.amount > 0)) {
             await api.createPayment({
               supplierId: existing.id,
               type: pay.type || 'ACCONTO',
@@ -112,7 +112,7 @@ export default function AIParser() {
             vatAmount: parsed.costs.vatAmount,
             totalGross: parsed.costs.totalGross
           }] : [],
-          payments: parsed.payments?.map(pay => ({
+          payments: parsed.payments?.filter(pay => pay.amount && pay.amount > 0).map(pay => ({
             type: pay.type || 'ACCONTO',
             label: pay.label || null,
             amount: pay.amount,
