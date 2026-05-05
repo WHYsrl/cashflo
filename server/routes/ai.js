@@ -75,7 +75,7 @@ router.post('/parse-document', upload.single('file'), async (req, res) => {
     }
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       messages: [{ role: 'user', content }]
     });
@@ -103,7 +103,7 @@ router.post('/parse-text', async (req, res) => {
     if (!text) return res.status(400).json({ error: 'Nessun testo fornito' });
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       messages: [{ role: 'user', content: `${EXTRACTION_PROMPT}\n\nTesto:\n${text}` }]
     });
