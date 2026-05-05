@@ -13,6 +13,7 @@ export default function AIParser() {
   const [saving, setSaving] = useState(false);
   const [suppliers, setSuppliers] = useState([]);
   const [dragover, setDragover] = useState(false);
+  const [aiModel, setAiModel] = useState('sonnet');
   const fileRef = useRef(null);
   const navigate = useNavigate();
 
@@ -27,9 +28,10 @@ export default function AIParser() {
       if (mode === 'upload' && file) {
         const formData = new FormData();
         formData.append('file', file);
+        formData.append('model', aiModel);
         result = await api.parseDocument(formData);
       } else if (mode === 'text' && text.trim()) {
-        result = await api.parseText(text);
+        result = await api.parseText(text, aiModel);
       } else {
         setError('Fornisci un file o del testo da analizzare');
         setParsing(false);
@@ -140,9 +142,18 @@ export default function AIParser() {
         Carica una fattura/preventivo o incolla del testo — l'AI estrarrà automaticamente i dati del fornitore.
       </p>
 
-      <div className="view-tabs" style={{ marginBottom: 16 }}>
-        <button className={`view-tab${mode === 'upload' ? ' active' : ''}`} onClick={() => setMode('upload')}>📄 Upload File</button>
-        <button className={`view-tab${mode === 'text' ? ' active' : ''}`} onClick={() => setMode('text')}>✏️ Testo Libero</button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <div className="view-tabs">
+          <button className={`view-tab${mode === 'upload' ? ' active' : ''}`} onClick={() => setMode('upload')}>📄 Upload File</button>
+          <button className={`view-tab${mode === 'text' ? ' active' : ''}`} onClick={() => setMode('text')}>✏️ Testo Libero</button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label className="form-label" style={{ margin: 0, whiteSpace: 'nowrap' }}>Modello AI:</label>
+          <select className="form-select" style={{ width: 'auto' }} value={aiModel} onChange={e => setAiModel(e.target.value)}>
+            <option value="sonnet">Sonnet 4.6 (veloce)</option>
+            <option value="opus">Opus 4.6 (massima precisione)</option>
+          </select>
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>

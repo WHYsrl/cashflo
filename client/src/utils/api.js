@@ -43,5 +43,5 @@ export const api = {
 
   // AI
   parseDocument: (formData) => fetch(`${BASE}/ai/parse-document`, { method: 'POST', body: formData }).then(r => r.json()),
-  parseText: (text) => request('/ai/parse-text', { method: 'POST', body: JSON.stringify({ text }) }),
+  parseText: (text, model) => request('/ai/parse-text', { method: 'POST', body: JSON.stringify({ text, model }) }),
 };

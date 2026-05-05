@@ -9,6 +9,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const upload = multer({ dest: path.join(__dirname, '../../uploads/temp'), limits: { fileSize: 20 * 1024 * 1024 } });
 const router = Router();
 
+const MODELS = {
+  sonnet: 'claude-sonnet-4-6',
+  opus: 'claude-opus-4-6'
+};
+
 const EXTRACTION_PROMPT = `Sei un assistente specializzato nell'estrazione dati da fatture e preventivi italiani.
 Analizza il documento fornito e restituisci un JSON con questa struttura:
 
@@ -74,8 +79,9 @@ router.post('/parse-document', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'Nessun file fornito' });
     }
 
+    const selectedModel = MODELS[req.body?.model] || MODELS.sonnet;
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: selectedModel,
       max_tokens: 4096,
       messages: [{ role: 'user', content }]
     });
@@ -99,11 +105,12 @@ router.post('/parse-text', async (req, res) => {
     if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurata' });
 
     const client = new Anthropic({ apiKey });
-    const { text } = req.body;
+    const { text, model } = req.body;
     if (!text) return res.status(400).json({ error: 'Nessun testo fornito' });
 
+    const selectedModel = MODELS[model] || MODELS.sonnet;
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: selectedModel,
       max_tokens: 4096,
       messages: [{ role: 'user', content: `${EXTRACTION_PROMPT}\n\nTesto:\n${text}` }]
     });
