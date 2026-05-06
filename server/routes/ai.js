@@ -48,7 +48,14 @@ Analizza il documento fornito e restituisci un JSON con questa struttura:
   "notes": "altre informazioni rilevanti (condizioni di cancellazione, extra, etc.)"
 }
 
-Se un campo non è presente nel documento, usa null. Cerca di estrarre TUTTI i dettagli di pagamento: acconti, depositi, tranches, saldi, con relative scadenze. Rispondi SOLO con il JSON, senza commenti.`;
+REGOLE IMPORTANTI PER I CALCOLI:
+- Se il documento indica un prezzo unitario (es. €95/persona) e un numero di ospiti/unità (es. 30 o 35), CALCOLA il totale moltiplicando. Se c'è un range (es. 30-35), usa il numero massimo.
+- Se ci sono voci separate (es. staff, attrezzature, servizi extra), SOMMA tutto per ottenere il totale complessivo.
+- Calcola sempre amountNet come somma di tutte le voci. Se l'IVA è indicata (es. 10%, 22%), calcola vatAmount e totalGross.
+- Se il documento indica pagamenti in percentuale (es. "50% alla conferma"), CALCOLA l'importo effettivo basandoti sul totale calcolato.
+- I payments devono SEMPRE avere un amount numerico calcolato, mai null.
+
+Se un campo non è presente nel documento e non è calcolabile, usa null. Cerca di estrarre TUTTI i dettagli di pagamento: acconti, depositi, tranches, saldi, con relative scadenze. Rispondi SOLO con il JSON, senza commenti.`;
 
 // POST parse document with AI (file upload)
 router.post('/parse-document', upload.single('file'), async (req, res) => {
