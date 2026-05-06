@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import multer from 'multer';
+import mammoth from 'mammoth';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -81,6 +82,14 @@ router.post('/parse-document', upload.single('file'), async (req, res) => {
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
           { type: 'text', text: EXTRACTION_PROMPT }
         ];
+      } else if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || req.file.originalname.endsWith('.docx')) {
+        const result = await mammoth.extractRawText({ buffer: fileBuf });
+        const docText = result.value;
+        if (!docText || docText.trim().length === 0) {
+          fs.unlinkSync(req.file.path);
+          return res.status(422).json({ error: 'Impossibile estrarre testo dal file DOCX. Prova a convertirlo in PDF.' });
+        }
+        content = [{ type: 'text', text: `${EXTRACTION_PROMPT}\n\nContenuto documento DOCX:\n${docText}` }];
       } else {
         const text = fileBuf.toString('utf-8');
         content = [{ type: 'text', text: `${EXTRACTION_PROMPT}\n\nContenuto documento:\n${text}` }];

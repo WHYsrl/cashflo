@@ -177,13 +177,13 @@ export default function AIParser() {
             onDragLeave={() => setDragover(false)}
             onDrop={e => { e.preventDefault(); setDragover(false); setFile(e.dataTransfer.files[0]); }}
           >
-            <input ref={fileRef} type="file" hidden accept=".pdf,.png,.jpg,.jpeg,.txt" onChange={e => setFile(e.target.files[0])} />
+            <input ref={fileRef} type="file" hidden accept=".pdf,.png,.jpg,.jpeg,.txt,.docx,.doc" onChange={e => setFile(e.target.files[0])} />
             {file ? (
               <div><strong>{file.name}</strong> ({(file.size / 1024).toFixed(0)} KB)</div>
             ) : (
               <div>
                 <div style={{ fontSize: 32, marginBottom: 8 }}>📎</div>
-                <div>Trascina qui un file PDF, immagine o testo</div>
+                <div>Trascina qui un file PDF, Word, immagine o testo</div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>oppure clicca per selezionare</div>
               </div>
             )}
