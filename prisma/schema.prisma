@@ -23,9 +23,10 @@ model Supplier {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  costs     Cost[]
-  payments  Payment[]
-  documents Document[]
+  costs      Cost[]
+  payments   Payment[]
+  documents  Document[]
+  extraCosts ExtraCost[]
 }
 
 model Cost {
@@ -69,6 +70,24 @@ model Document {
   rawText    String?      // testo estratto dal documento
   parsedData Json?        // dati strutturati estratti dall'AI
   createdAt  DateTime     @default(now())
+}
+
+model ExtraCost {
+  id               String          @id @default(cuid())
+  supplierId       String
+  supplier         Supplier        @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  description      String          // descrizione della spesa extra
+  amount           Float           // importo
+  status           ExtraCostStatus @default(DA_CONFERMARE)
+  addToPaymentPlan Boolean         @default(false) // se true, va nel piano pagamenti; se false, pagamento a parte
+  notes            String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+enum ExtraCostStatus {
+  DA_CONFERMARE
+  CONFERMATA
 }
 
 enum PaymentType {

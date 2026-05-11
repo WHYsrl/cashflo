@@ -36,7 +36,8 @@ export default function Dashboard() {
         </div>
         <div className="stat-card">
           <div className="stat-label">Da Pagare</div>
-          <div className="stat-value danger">{formatCurrency(data.totalDue)}</div>
+          <div className="stat-value danger">{formatCurrency(data.totalCosts - data.totalPaid)}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>di cui programmati: {formatCurrency(data.totalDue)}</div>
         </div>
       </div>
 

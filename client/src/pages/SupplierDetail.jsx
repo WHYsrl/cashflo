@@ -128,6 +128,60 @@ function CostModal({ supplierId, onClose, onSave }) {
   );
 }
 
+function ExtraCostModal({ supplierId, extraCost, onClose, onSave }) {
+  const [form, setForm] = useState(extraCost || {
+    description: '', amount: '', status: 'DA_CONFERMARE', addToPaymentPlan: false, notes: ''
+  });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSave = async () => {
+    const data = { ...form, amount: parseFloat(form.amount) || 0 };
+    if (extraCost?.id) await api.updateExtraCost(supplierId, extraCost.id, data);
+    else await api.addExtraCost(supplierId, data);
+    onSave();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-title">{extraCost?.id ? 'Modifica Spesa Extra' : 'Nuova Spesa Extra'}</div>
+        <div className="form-group">
+          <label className="form-label">Descrizione *</label>
+          <input className="form-input" value={form.description} onChange={e => set('description', e.target.value)} placeholder="es. Allestimento luci aggiuntivo" />
+        </div>
+        <div className="form-row-3">
+          <div className="form-group">
+            <label className="form-label">Importo *</label>
+            <input className="form-input" type="number" step="0.01" value={form.amount} onChange={e => set('amount', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Stato</label>
+            <select className="form-select" value={form.status} onChange={e => set('status', e.target.value)}>
+              <option value="DA_CONFERMARE">Da confermare</option>
+              <option value="CONFERMATA">Confermata</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Piano pagamenti</label>
+            <select className="form-select" value={form.addToPaymentPlan ? 'yes' : 'no'} onChange={e => set('addToPaymentPlan', e.target.value === 'yes')}>
+              <option value="no">A parte</option>
+              <option value="yes">Nel piano pagamenti</option>
+            </select>
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Note</label>
+          <textarea className="form-textarea" value={form.notes || ''} onChange={e => set('notes', e.target.value)} />
+        </div>
+        <div className="modal-actions">
+          <button className="btn" onClick={onClose}>Annulla</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={!form.description || !form.amount}>Salva</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SupplierDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -137,6 +191,7 @@ export default function SupplierDetail() {
   const [costModal, setCostModal] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
+  const [extraModal, setExtraModal] = useState(null);
 
   const load = useCallback(() => {
     api.getSupplier(id).then(s => { setSupplier(s); setEditForm(s); }).finally(() => setLoading(false));
@@ -175,9 +230,13 @@ export default function SupplierDetail() {
   if (loading) return <div className="loading"><div className="spinner" /></div>;
   if (!supplier) return <div className="empty">Fornitore non trovato</div>;
 
-  const totalCost = supplier.costs.reduce((a, c) => a + (c.totalGross || c.amountNet || 0), 0);
+  const totalCostBase = supplier.costs.reduce((a, c) => a + (c.totalGross || c.amountNet || 0), 0);
+  const confirmedExtras = (supplier.extraCosts || []).filter(e => e.status === 'CONFERMATA');
+  const totalExtraCosts = confirmedExtras.reduce((a, e) => a + e.amount, 0);
+  const totalCost = totalCostBase + totalExtraCosts;
   const totalPaid = supplier.payments.filter(p => p.status === 'PAID').reduce((a, p) => a + p.amount, 0);
-  const totalDue = supplier.payments.filter(p => p.status !== 'PAID').reduce((a, p) => a + p.amount, 0);
+  const totalScheduled = supplier.payments.filter(p => p.status !== 'PAID').reduce((a, p) => a + p.amount, 0);
+  const totalDue = totalCost - totalPaid;
 
   // Etichetta pagamento: usa label custom oppure fallback a tipo
   const payLabel = (p) => p.label || (p.type === 'ACCONTO' ? 'Acconto' : 'Saldo');
@@ -234,9 +293,17 @@ export default function SupplierDetail() {
       )}
 
       <div className="stats-grid">
-        <div className="stat-card"><div className="stat-label">Costo Totale</div><div className="stat-value">{formatCurrency(totalCost)}</div></div>
+        <div className="stat-card">
+          <div className="stat-label">Costo Totale</div>
+          <div className="stat-value">{formatCurrency(totalCost)}</div>
+          {totalExtraCosts > 0 && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>di cui extra: {formatCurrency(totalExtraCosts)}</div>}
+        </div>
         <div className="stat-card"><div className="stat-label">Pagato</div><div className="stat-value success">{formatCurrency(totalPaid)}</div></div>
-        <div className="stat-card"><div className="stat-label">Da Pagare</div><div className="stat-value danger">{formatCurrency(totalDue)}</div></div>
+        <div className="stat-card">
+          <div className="stat-label">Da Pagare</div>
+          <div className="stat-value danger">{formatCurrency(totalDue)}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>di cui programmati: {formatCurrency(totalScheduled)}</div>
+        </div>
       </div>
 
       {/* Costs section */}
@@ -299,8 +366,62 @@ export default function SupplierDetail() {
         )}
       </div>
 
+      {/* Extra Costs section */}
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Spese Extra</div>
+          <button className="btn btn-sm btn-primary" onClick={() => setExtraModal({})}>+ Spesa Extra</button>
+        </div>
+        {(!supplier.extraCosts || supplier.extraCosts.length === 0) ? (
+          <div className="empty">Nessuna spesa extra</div>
+        ) : (
+          <table>
+            <thead><tr><th>Descrizione</th><th>Importo</th><th>Stato</th><th>Piano Pagamenti</th><th></th></tr></thead>
+            <tbody>
+              {supplier.extraCosts.map(e => (
+                <tr key={e.id} style={{ opacity: e.status === 'DA_CONFERMARE' ? 0.6 : 1 }}>
+                  <td>{e.description}{e.notes ? <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 8 }}>{e.notes}</span> : ''}</td>
+                  <td style={{ fontWeight: 600 }}>{formatCurrency(e.amount)}</td>
+                  <td>
+                    <span className="badge" style={{
+                      background: e.status === 'CONFERMATA' ? '#ecfdf5' : '#fefce8',
+                      color: e.status === 'CONFERMATA' ? 'var(--success)' : 'var(--warning)'
+                    }}>
+                      {e.status === 'CONFERMATA' ? 'Confermata' : 'Da confermare'}
+                    </span>
+                  </td>
+                  <td>
+                    {e.status === 'CONFERMATA' ? (
+                      <span style={{ fontSize: 12, color: e.addToPaymentPlan ? 'var(--primary)' : 'var(--text-secondary)' }}>
+                        {e.addToPaymentPlan ? 'Nel piano' : 'A parte'}
+                      </span>
+                    ) : '-'}
+                  </td>
+                  <td>
+                    <div className="btn-group">
+                      {e.status === 'DA_CONFERMARE' && (
+                        <button className="btn btn-sm btn-success" onClick={async () => { await api.updateExtraCost(id, e.id, { status: 'CONFERMATA' }); load(); }}>✓ Conferma</button>
+                      )}
+                      {e.status === 'CONFERMATA' && (
+                        <button className="btn btn-sm" onClick={async () => { await api.updateExtraCost(id, e.id, { addToPaymentPlan: !e.addToPaymentPlan }); load(); }}
+                          title={e.addToPaymentPlan ? 'Rimuovi dal piano pagamenti' : 'Inserisci nel piano pagamenti'}>
+                          {e.addToPaymentPlan ? '📋 → A parte' : '📋 → Nel piano'}
+                        </button>
+                      )}
+                      <button className="btn btn-sm" onClick={() => setExtraModal(e)}>✏️</button>
+                      <button className="btn btn-sm" onClick={async () => { if (confirm('Eliminare questa spesa extra?')) { await api.deleteExtraCost(id, e.id); load(); } }}>🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
       {paymentModal !== null && <PaymentModal supplierId={id} payment={paymentModal.id ? paymentModal : undefined} onClose={() => setPaymentModal(null)} onSave={() => { setPaymentModal(null); load(); }} />}
       {costModal && <CostModal supplierId={id} onClose={() => setCostModal(false)} onSave={() => { setCostModal(false); load(); }} />}
+      {extraModal !== null && <ExtraCostModal supplierId={id} extraCost={extraModal.id ? extraModal : undefined} onClose={() => setExtraModal(null)} onSave={() => { setExtraModal(null); load(); }} />}
     </div>
   );
 }

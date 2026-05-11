@@ -10,6 +10,7 @@ router.get('/', async (req, res) => {
       include: {
         costs: true,
         payments: true,
+        extraCosts: true,
         documents: { select: { id: true, type: true, fileName: true } }
       },
       orderBy: { alias: 'asc' }
@@ -25,7 +26,7 @@ router.get('/:id', async (req, res) => {
   try {
     const supplier = await prisma.supplier.findUnique({
       where: { id: req.params.id },
-      include: { costs: true, payments: { orderBy: { dueDate: 'asc' } }, documents: true }
+      include: { costs: true, payments: { orderBy: { dueDate: 'asc' } }, extraCosts: true, documents: true }
     });
     if (!supplier) return res.status(404).json({ error: 'Fornitore non trovato' });
     res.json(supplier);
@@ -68,7 +69,7 @@ router.put('/:id', async (req, res) => {
       data: {
         alias, businessName, iban, vatNumber, email, phone, mobile, contactPerson, serviceSummary, serviceDescription, notes
       },
-      include: { costs: true, payments: true, documents: true }
+      include: { costs: true, payments: true, extraCosts: true, documents: true }
     });
     res.json(supplier);
   } catch (err) {
@@ -102,6 +103,43 @@ router.post('/:id/costs', async (req, res) => {
 router.delete('/:supplierId/costs/:costId', async (req, res) => {
   try {
     await prisma.cost.delete({ where: { id: req.params.costId } });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Extra Costs ---
+
+// POST add extra cost to supplier
+router.post('/:id/extra-costs', async (req, res) => {
+  try {
+    const extra = await prisma.extraCost.create({
+      data: { supplierId: req.params.id, ...req.body }
+    });
+    res.status(201).json(extra);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT update extra cost
+router.put('/:supplierId/extra-costs/:extraId', async (req, res) => {
+  try {
+    const extra = await prisma.extraCost.update({
+      where: { id: req.params.extraId },
+      data: req.body
+    });
+    res.json(extra);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE extra cost
+router.delete('/:supplierId/extra-costs/:extraId', async (req, res) => {
+  try {
+    await prisma.extraCost.delete({ where: { id: req.params.extraId } });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

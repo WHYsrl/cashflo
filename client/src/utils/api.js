@@ -25,6 +25,11 @@ export const api = {
   addCost: (supplierId, data) => request(`/suppliers/${supplierId}/costs`, { method: 'POST', body: JSON.stringify(data) }),
   deleteCost: (supplierId, costId) => request(`/suppliers/${supplierId}/costs/${costId}`, { method: 'DELETE' }),
 
+  // Extra Costs
+  addExtraCost: (supplierId, data) => request(`/suppliers/${supplierId}/extra-costs`, { method: 'POST', body: JSON.stringify(data) }),
+  updateExtraCost: (supplierId, extraId, data) => request(`/suppliers/${supplierId}/extra-costs/${extraId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteExtraCost: (supplierId, extraId) => request(`/suppliers/${supplierId}/extra-costs/${extraId}`, { method: 'DELETE' }),
+
   // Payments
   getPayments: (params = {}) => {
     const qs = new URLSearchParams(params).toString();

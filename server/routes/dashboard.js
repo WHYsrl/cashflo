@@ -28,11 +28,16 @@ router.get('/', async (req, res) => {
     const costs = await prisma.cost.findMany();
     const totalCosts = costs.reduce((s, c) => s + (c.totalGross || c.amountNet || 0), 0);
 
+    // Extra costs: only confirmed ones count
+    const extraCosts = await prisma.extraCost.findMany({ where: { status: 'CONFERMATA' } });
+    const totalExtraCosts = extraCosts.reduce((s, e) => s + e.amount, 0);
+
     res.json({
       suppliersCount: suppliers,
-      totalCosts,
+      totalCosts: totalCosts + totalExtraCosts,
       totalPaid,
       totalDue,
+      totalExtraCosts,
       overdueCount: overdue.length,
       overduePayments: overdue,
       upcomingPayments: upcoming
