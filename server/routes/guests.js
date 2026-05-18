@@ -176,205 +176,17 @@ router.post('/import/upload', upload.single('file'), async (req, res) => {
     let parsedGuests = [];
 
     if (ext === '.xlsx' || ext === '.xls') {
-      // Dynamic import for xlsx
+      // AI-powered Excel parsing: convert all sheets to CSV, let Claude understand context
       const XLSX = (await import('xlsx')).default;
       const workbook = XLSX.readFile(filePath);
 
-      // Try to find hotel manifest sheet
-      const hotelSheet = workbook.SheetNames.find(n => n.toLowerCase().includes('hotel')) || workbook.SheetNames[0];
-      const hotelData = XLSX.utils.sheet_to_json(workbook.Sheets[hotelSheet]);
-
-      // Try to find survey sheet
-      const surveySheet = workbook.SheetNames.find(n => n.toLowerCase().includes('survey'));
-      let surveyData = [];
-      if (surveySheet) {
-        const rawSurvey = XLSX.utils.sheet_to_json(workbook.Sheets[surveySheet], { header: 1 });
-        if (rawSurvey.length > 1) {
-          const headers = rawSurvey[0];
-          surveyData = rawSurvey.slice(1).map(row => {
-            const obj = {};
-            headers.forEach((h, i) => { if (h && row[i] !== undefined) obj[String(h).trim()] = row[i]; });
-            return obj;
-          });
-        }
+      let allText = '';
+      for (const sheetName of workbook.SheetNames) {
+        const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+        allText += `=== FOGLIO: ${sheetName} ===\n${csv}\n\n`;
       }
 
-      // Check if sheet has expected structure — if not, use AI
-      const sampleRow = hotelData[0] || {};
-      const knownKeys = ['Full Name', 'full name', 'Last Name', 'last name', 'HOTEL ROOMS NEEDED', 'ROOM TYPE', 'COUNT'];
-      const hasKnownStructure = knownKeys.some(k => k in sampleRow);
-
-      if (!hasKnownStructure && hotelData.length > 0) {
-        // Unknown Excel structure — let AI parse it
-        let allText = '';
-        for (const sheetName of workbook.SheetNames) {
-          const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
-          allText += `=== Sheet: ${sheetName} ===\n${csv}\n\n`;
-        }
-        parsedGuests = await aiParseGuestData(allText, 'EXCEL');
-      } else {
-
-      // Parse hotel manifest
-      for (const row of hotelData) {
-        const fullName = row['Full Name'] || row['full name'] || '';
-        const lastName = row['Last Name'] || row['last name'] || '';
-        if (!fullName && !lastName) continue;
-
-        // Parse name - handle "X and Y LastName" pattern
-        let firstName = '', companionName = '';
-        const andMatch = fullName.match(/^(.+?)\s+and\s+(.+)$/i);
-        if (andMatch) {
-          // Two people: "Roberta and Stanley Bogen"
-          const parts = andMatch[2].trim().split(/\s+/);
-          if (parts.length > 1) {
-            // "Stanley Bogen" -> companion is first part of original
-            firstName = parts.slice(0, -1).join(' ');
-            companionName = andMatch[1].trim();
-          } else {
-            firstName = andMatch[2].trim();
-            companionName = andMatch[1].trim();
-          }
-        } else {
-          firstName = fullName.replace(lastName, '').trim().replace(/,\s*$/, '');
-        }
-
-        const guest = {
-          firstName: firstName || fullName,
-          lastName,
-          fullName,
-          hotelRoomsNeeded: row['HOTEL ROOMS NEEDED'] ? parseInt(row['HOTEL ROOMS NEEDED']) : null,
-          roomType: row['ROOM TYPE'] || null,
-          checkInDate: row['HOTEL CHECK-IN DATE'] || null,
-          checkOutDate: row['HOTEL OUT DATE'] || null,
-          specialRequests: row['Unnamed: 7'] || null,
-          companions: [],
-          flights: []
-        };
-
-        if (companionName) {
-          guest.companions.push({ fullName: companionName + ' ' + lastName, relationship: 'Spouse/Partner' });
-        }
-
-        // Count field
-        const count = parseInt(row['COUNT']);
-        if (count > 1 && !companionName) {
-          guest.companions.push({ fullName: 'Accompagnatore', relationship: 'TBD' });
-        }
-
-        // Try to match with survey data
-        const surveyMatch = surveyData.find(s => {
-          const sLast = String(s[''] || s['Last Name'] || '');
-          const sFirst = String(s['First Name'] || Object.values(s)[0] || '');
-          return sLast.toLowerCase().includes(lastName.toLowerCase()) ||
-                 sFirst.toLowerCase().includes(firstName.toLowerCase());
-        });
-
-        if (surveyMatch) {
-          // Map survey fields
-          const vals = Object.values(surveyMatch);
-          const keys = Object.keys(surveyMatch);
-
-          // Contact info - first fields are usually First, Last, Phone, Phone2, Email, Address...
-          guest.email = findFieldValue(surveyMatch, ['Preferred Email', 'Email']);
-          guest.phone = findFieldValue(surveyMatch, ['Mobile Phone', 'Phone Number']);
-          guest.phoneOffice = findFieldValue(surveyMatch, ['Home or Office']);
-          guest.city = findFieldValue(surveyMatch, ['City']);
-          guest.state = findFieldValue(surveyMatch, ['State']);
-          guest.zip = findFieldValue(surveyMatch, ['Zip']);
-
-          // Companion from survey
-          const companionField = findFieldValue(surveyMatch, ['full name and relationship', '+1']);
-          if (companionField && guest.companions.length === 0) {
-            guest.companions.push({ fullName: companionField, relationship: 'Companion' });
-          }
-
-          // Passport
-          guest.passportCountry = findFieldValue(surveyMatch, ['Passport Country']);
-          guest.passportNumber = findFieldValue(surveyMatch, ['Passport Number']);
-          guest.passportExpiry = findFieldValue(surveyMatch, ['Passport Expiration']);
-          guest.dateOfBirth = findFieldValue(surveyMatch, ['Date of Birth']);
-
-          // Dietary & Medical
-          guest.dietaryRestrictions = findFieldValue(surveyMatch, ['Dietary']);
-          guest.mobilityNeeds = findFieldValue(surveyMatch, ['mobility']);
-          guest.medicalInfo = findFieldValue(surveyMatch, ['medical information', 'medications']);
-
-          // Assistant
-          const assistFields = findFieldsByPrefix(surveyMatch, 'assistant');
-          if (assistFields.name) {
-            guest.assistantName = assistFields.name;
-            guest.assistantEmail = assistFields.email;
-            guest.assistantPhone = assistFields.phone;
-          }
-
-          // Emergency contact
-          const emergFields = findFieldsByPrefix(surveyMatch, 'emergency');
-          if (emergFields.name) {
-            guest.emergencyName = emergFields.name;
-            guest.emergencyPhone = emergFields.phone;
-            guest.emergencyEmail = emergFields.email;
-            guest.emergencyRelation = emergFields.relationship;
-          }
-
-          // Flights - Arrival
-          const depAirport = findFieldValue(surveyMatch, ['Departure Airport']);
-          const arrAirport = findFieldValue(surveyMatch, ['Arrival Airport']);
-          const airline = findFieldValue(surveyMatch, ['Airline']);
-          const flightNum = findFieldValue(surveyMatch, ['Flight Number']);
-          const flightDate = findFieldValue(surveyMatch, ['Date']);
-          const depTime = findFieldValue(surveyMatch, ['DEPARTURE Time', 'Time']);
-          const arrDay = findFieldValue(surveyMatch, ['ARRIVAL DAY']);
-          const arrTime = findFieldValue(surveyMatch, ['ARRIVAL TIME']);
-
-          if (depAirport || flightNum) {
-            guest.flights.push({
-              direction: 'ARRIVAL',
-              departureAirport: depAirport,
-              arrivalAirport: arrAirport,
-              airline: airline,
-              flightNumber: flightNum,
-              date: flightDate,
-              departureTime: depTime,
-              arrivalDay: arrDay,
-              arrivalTime: arrTime
-            });
-          }
-
-          // Flights - Departure
-          const depAirport2 = findFieldValueAt(surveyMatch, ['Departure Airport'], 1);
-          const airline2 = findFieldValueAt(surveyMatch, ['Airline'], 1);
-          const flightNum2 = findFieldValueAt(surveyMatch, ['Flight Number'], 1);
-          const flightDate2 = findFieldValueAt(surveyMatch, ['Date'], 1);
-          const depTime2 = findFieldValueAt(surveyMatch, ['Time'], 1);
-
-          if (depAirport2 || flightNum2) {
-            guest.flights.push({
-              direction: 'DEPARTURE',
-              departureAirport: depAirport2,
-              airline: airline2,
-              flightNumber: flightNum2,
-              date: flightDate2,
-              departureTime: depTime2
-            });
-          }
-
-          // Hotel upgrade
-          guest.hotelUpgrade = findFieldValue(surveyMatch, ['upgrade', 'Deluxe Room', 'Suite']);
-
-          // WhatsApp
-          const waVal = findFieldValue(surveyMatch, ['WhatsApp']);
-          guest.whatsappOptIn = waVal ? waVal.toLowerCase().includes('yes') : false;
-
-          // Special requests from survey
-          const surveyRequests = findFieldValue(surveyMatch, ['Comments', 'special requests']);
-          if (surveyRequests) {
-            guest.specialRequests = [guest.specialRequests, surveyRequests].filter(Boolean).join(' | ');
-          }
-        }
-
-        parsedGuests.push(guest);
-      }
-      } // close else (hasKnownStructure)
+      parsedGuests = await aiParseGuestData(allText, 'EXCEL');
     } else if (ext === '.pdf') {
       // AI-powered PDF parsing using Claude
       const pdfParse = (await import('pdf-parse')).default;
@@ -419,7 +231,7 @@ router.post('/import/:importId/confirm', async (req, res) => {
     const results = [];
 
     for (const g of guests) {
-      const { companions, flights, _rawText, _type, title, organization, ...guestData } = g;
+      const { companions, flights, _rawText, _type, title, organization, id, createdAt, updatedAt, ...guestData } = g;
 
       // Merge title/organization into bio if present (AI-extracted fields)
       if (title || organization) {
@@ -433,10 +245,14 @@ router.post('/import/:importId/confirm', async (req, res) => {
       if (guestData.checkOutDate) guestData.checkOutDate = new Date(guestData.checkOutDate);
       else guestData.checkOutDate = null;
 
+      // Ensure correct types
+      guestData.hotelRoomsNeeded = guestData.hotelRoomsNeeded ? parseInt(guestData.hotelRoomsNeeded) : null;
+      guestData.whatsappOptIn = guestData.whatsappOptIn === true;
+      guestData.healthAttestation = guestData.healthAttestation === true;
+
       const created = await prisma.guest.create({
         data: {
           ...guestData,
-          hotelRoomsNeeded: guestData.hotelRoomsNeeded ? parseInt(guestData.hotelRoomsNeeded) : null,
           companions: companions?.length ? {
             create: companions.map(c => ({
               fullName: c.fullName,
@@ -721,58 +537,92 @@ async function aiParseGuestData(rawText, sourceType) {
   const Anthropic = (await import('@anthropic-ai/sdk')).default;
   const client = new Anthropic({ apiKey });
 
-  const prompt = `Sei un sistema di data extraction per la gestione ospiti di un evento VIP. Analizza il seguente testo estratto da un file ${sourceType} e identifica TUTTI gli ospiti menzionati.
+  const prompt = `Sei un sistema esperto di data extraction per la gestione ospiti di un evento VIP. Devi analizzare dati estratti da un file ${sourceType} e creare un profilo completo per ogni PERSONA REALE ospite dell'evento.
 
-Per ciascun ospite, estrai TUTTI i campi disponibili nel testo. Rispondi ESCLUSIVAMENTE con un array JSON valido (nessun testo prima o dopo).
+CONTESTO IMPORTANTE:
+- I dati possono provenire da PIÙ FOGLI Excel (hotel manifest, survey, lista voli, biografie, ecc.)
+- Devi INCROCIARE le informazioni tra i fogli per abbinare lo stesso ospite su dati diversi (match per nome/cognome)
+- Un foglio può contenere i dati hotel (camere, check-in/out), un altro i dati personali (dieta, passaporto, voli), un altro le biografie
+
+REGOLE CRITICHE PER IDENTIFICARE GLI OSPITI:
+1. Un OSPITE è una persona fisica che partecipa all'evento. Ha un nome e un cognome.
+2. NON sono ospiti: preferenze alimentari (es. "Kosher", "Vegetarian", "Gluten free"), tipi di camera (es. "Deluxe", "Suite"), status (es. "Confirmed", "Pending"), intestazioni di colonna, note generiche
+3. Se una riga contiene "John and Mary Smith" oppure "John & Mary Smith", l'ospite principale è John Smith e Mary Smith va come companion
+4. Se il COUNT o numero persone è > 1 ma non c'è nome accompagnatore, aggiungi un companion generico
+5. Se ci sono più fogli, INCROCIA i dati: cerca lo stesso nome/cognome nei diversi fogli e UNISCI tutte le informazioni in un unico profilo ospite
+
+COME CLASSIFICARE I DATI:
+- "Kosher", "Vegetarian", "No pork", "Allergic to nuts", "Gluten free" → dietaryRestrictions (NON è un ospite!)
+- "Wheelchair", "Limited mobility", "Walker needed" → mobilityNeeds
+- "Diabetes", "Heart condition", "Takes insulin" → medicalInfo
+- "Early check-in", "High floor", "Extra pillows" → specialRequests
+- "Deluxe Room", "Suite", "Standard Double" → roomType
+- Codici tipo "LH402", "UA123", "AZ610" → flightNumber
+- "FCO", "JFK", "EWR", "TLV" → codici aeroporto
+
+Rispondi ESCLUSIVAMENTE con un array JSON valido (nessun testo prima o dopo, nessun markdown).
 
 Schema per ogni ospite:
 {
-  "firstName": "nome",
-  "lastName": "cognome",
-  "email": "email o null",
-  "phone": "telefono o null",
-  "roomType": "tipo camera o null",
-  "checkInDate": "data check-in YYYY-MM-DD o null",
-  "checkOutDate": "data check-out YYYY-MM-DD o null",
-  "dietaryRestrictions": "restrizioni alimentari o null",
-  "mobilityNeeds": "esigenze mobilità o null",
-  "medicalInfo": "info mediche o null",
-  "specialRequests": "richieste speciali o null",
-  "passportCountry": "paese passaporto o null",
-  "passportNumber": "numero passaporto o null",
-  "dateOfBirth": "data nascita o null",
-  "city": "città o null",
-  "state": "stato/provincia o null",
-  "bio": "biografia/descrizione della persona o null",
+  "firstName": "string",
+  "lastName": "string",
+  "email": "string o null",
+  "phone": "string o null",
+  "phoneOffice": "string o null",
+  "roomType": "string o null",
+  "hotelRoomsNeeded": "number o null",
+  "checkInDate": "YYYY-MM-DD o null",
+  "checkOutDate": "YYYY-MM-DD o null",
+  "hotelUpgrade": "string o null",
+  "dietaryRestrictions": "string o null",
+  "mobilityNeeds": "string o null",
+  "medicalInfo": "string o null",
+  "specialRequests": "string o null",
+  "passportCountry": "string o null",
+  "passportNumber": "string o null",
+  "passportExpiry": "string o null",
+  "dateOfBirth": "string o null",
+  "city": "string o null",
+  "state": "string o null",
+  "zip": "string o null",
+  "mailingAddress": "string o null",
+  "bio": "biografia della persona o null",
   "title": "titolo professionale o null",
-  "organization": "organizzazione/azienda o null",
-  "companions": [{"fullName": "nome accompagnatore", "relationship": "relazione o null"}],
+  "organization": "organizzazione o null",
+  "whatsappOptIn": "boolean",
+  "assistantName": "string o null",
+  "assistantEmail": "string o null",
+  "assistantPhone": "string o null",
+  "emergencyName": "string o null",
+  "emergencyPhone": "string o null",
+  "emergencyEmail": "string o null",
+  "emergencyRelation": "string o null",
+  "companions": [{"fullName": "string", "relationship": "string o null"}],
   "flights": [{
     "direction": "ARRIVAL o DEPARTURE",
-    "departureAirport": "codice aeroporto partenza o null",
-    "arrivalAirport": "codice aeroporto arrivo o null",
-    "airline": "compagnia aerea o null",
-    "flightNumber": "numero volo o null",
-    "date": "data volo YYYY-MM-DD o null",
-    "departureTime": "orario partenza o null",
-    "arrivalTime": "orario arrivo o null"
+    "departureAirport": "string o null",
+    "arrivalAirport": "string o null",
+    "airline": "string o null",
+    "flightNumber": "string o null",
+    "date": "YYYY-MM-DD o null",
+    "departureTime": "string o null",
+    "arrivalDay": "YYYY-MM-DD o null",
+    "arrivalTime": "string o null"
   }]
 }
 
-REGOLE:
-- Se trovi coppie (es. "Mario e Lucia Rossi"), crea l'ospite principale e aggiungi il partner come companion
-- Se il testo contiene biografie, abbinale agli ospiti corrispondenti nel campo "bio"
-- Interpreta intelligentemente i dati: "allergico alle noci" → dietaryRestrictions, "sedia a rotelle" → mobilityNeeds
-- Se una data è in formato americano (MM/DD/YYYY) convertila a YYYY-MM-DD
-- NON inventare dati: se un campo non è presente nel testo, usa null
-- Se non riesci a identificare nessun ospite, rispondi con un array vuoto []
+ALTRE REGOLE:
+- Date americane (MM/DD/YYYY) → converti a YYYY-MM-DD
+- NON inventare dati: se un campo non è nel testo, usa null
+- Array vuoto [] se non trovi nessun ospite
+- Ogni ospite DEVE avere firstName e lastName (almeno uno dei due non vuoto)
 
-TESTO DA ANALIZZARE:
-${rawText.substring(0, 15000)}`;
+DATI DA ANALIZZARE:
+${rawText.substring(0, 25000)}`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
+    max_tokens: 8192,
     messages: [{ role: 'user', content: prompt }]
   });
 
@@ -786,27 +636,42 @@ ${rawText.substring(0, 15000)}`;
   try {
     const parsed = JSON.parse(jsonStr);
     if (!Array.isArray(parsed)) return [];
-    // Ensure all guests have required fields
+    // Ensure all guests have required fields and clean data
     return parsed.map(g => ({
       firstName: g.firstName || '',
       lastName: g.lastName || '',
+      fullName: `${g.firstName || ''} ${g.lastName || ''}`.trim() || null,
       email: g.email || null,
       phone: g.phone || null,
+      phoneOffice: g.phoneOffice || null,
+      mailingAddress: g.mailingAddress || null,
+      city: g.city || null,
+      state: g.state || null,
+      zip: g.zip || null,
+      hotelRoomsNeeded: g.hotelRoomsNeeded ? parseInt(g.hotelRoomsNeeded) : null,
       roomType: g.roomType || null,
       checkInDate: g.checkInDate || null,
       checkOutDate: g.checkOutDate || null,
+      hotelUpgrade: g.hotelUpgrade || null,
+      passportCountry: g.passportCountry || null,
+      passportNumber: g.passportNumber || null,
+      passportExpiry: g.passportExpiry || null,
+      dateOfBirth: g.dateOfBirth || null,
       dietaryRestrictions: g.dietaryRestrictions || null,
       mobilityNeeds: g.mobilityNeeds || null,
       medicalInfo: g.medicalInfo || null,
       specialRequests: g.specialRequests || null,
-      passportCountry: g.passportCountry || null,
-      passportNumber: g.passportNumber || null,
-      dateOfBirth: g.dateOfBirth || null,
-      city: g.city || null,
-      state: g.state || null,
+      assistantName: g.assistantName || null,
+      assistantEmail: g.assistantEmail || null,
+      assistantPhone: g.assistantPhone || null,
+      emergencyName: g.emergencyName || null,
+      emergencyPhone: g.emergencyPhone || null,
+      emergencyEmail: g.emergencyEmail || null,
+      emergencyRelation: g.emergencyRelation || null,
       bio: g.bio || null,
       title: g.title || null,
       organization: g.organization || null,
+      whatsappOptIn: g.whatsappOptIn === true,
       companions: (g.companions || []).map(c => ({
         fullName: c.fullName || 'N/A',
         relationship: c.relationship || null
@@ -819,6 +684,7 @@ ${rawText.substring(0, 15000)}`;
         flightNumber: f.flightNumber || null,
         date: f.date || null,
         departureTime: f.departureTime || null,
+        arrivalDay: f.arrivalDay || null,
         arrivalTime: f.arrivalTime || null
       }))
     })).filter(g => g.firstName || g.lastName);
