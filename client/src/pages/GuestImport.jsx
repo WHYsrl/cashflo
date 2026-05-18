@@ -13,8 +13,17 @@ export default function GuestImport() {
   const [confirming, setConfirming] = useState(false);
   const [expandedIdx, setExpandedIdx] = useState(null);
   const fileRef = useRef(null);
+  const [dragging, setDragging] = useState(false);
 
   useEffect(() => { if (!token) navigate('/guests/login'); }, [token]);
+
+  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setDragging(false); };
+  const handleDrop = (e) => {
+    e.preventDefault(); e.stopPropagation(); setDragging(false);
+    const droppedFile = e.dataTransfer.files?.[0];
+    if (droppedFile) setFile(droppedFile);
+  };
 
   const handleUpload = async () => {
     if (!file) return;
@@ -62,7 +71,7 @@ export default function GuestImport() {
 
       {!importId && (
         <div className="card" style={{ marginBottom: 16 }}>
-          <div className="upload-zone" onClick={() => fileRef.current?.click()}>
+          <div className={`upload-zone${dragging ? ' drag-over' : ''}`} onClick={() => fileRef.current?.click()} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
             <input ref={fileRef} type="file" hidden accept=".xlsx,.xls,.pdf" onChange={e => setFile(e.target.files[0])} />
             {file ? (
               <div><strong>{file.name}</strong> ({(file.size / 1024).toFixed(0)} KB)</div>

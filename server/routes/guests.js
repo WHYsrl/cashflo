@@ -199,6 +199,21 @@ router.post('/import/upload', upload.single('file'), async (req, res) => {
         }
       }
 
+      // Check if sheet has expected structure — if not, use AI
+      const sampleRow = hotelData[0] || {};
+      const knownKeys = ['Full Name', 'full name', 'Last Name', 'last name', 'HOTEL ROOMS NEEDED', 'ROOM TYPE', 'COUNT'];
+      const hasKnownStructure = knownKeys.some(k => k in sampleRow);
+
+      if (!hasKnownStructure && hotelData.length > 0) {
+        // Unknown Excel structure — let AI parse it
+        let allText = '';
+        for (const sheetName of workbook.SheetNames) {
+          const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+          allText += `=== Sheet: ${sheetName} ===\n${csv}\n\n`;
+        }
+        parsedGuests = await aiParseGuestData(allText, 'EXCEL');
+      } else {
+
       // Parse hotel manifest
       for (const row of hotelData) {
         const fullName = row['Full Name'] || row['full name'] || '';
@@ -248,8 +263,8 @@ router.post('/import/upload', upload.single('file'), async (req, res) => {
 
         // Try to match with survey data
         const surveyMatch = surveyData.find(s => {
-          const sLast = s[''] || s['Last Name'] || '';
-          const sFirst = s['First Name'] || Object.values(s)[0] || '';
+          const sLast = String(s[''] || s['Last Name'] || '');
+          const sFirst = String(s['First Name'] || Object.values(s)[0] || '');
           return sLast.toLowerCase().includes(lastName.toLowerCase()) ||
                  sFirst.toLowerCase().includes(firstName.toLowerCase());
         });
@@ -359,19 +374,27 @@ router.post('/import/upload', upload.single('file'), async (req, res) => {
 
         parsedGuests.push(guest);
       }
+      } // close else (hasKnownStructure)
     } else if (ext === '.pdf') {
-      // For PDF, use AI to extract (placeholder - returns raw text for now)
-      const mammoth = await import('mammoth').catch(() => null);
-      // Read as text using pdf-parse
+      // AI-powered PDF parsing using Claude
       const pdfParse = (await import('pdf-parse')).default;
       const buf = fs.readFileSync(filePath);
       const pdfData = await pdfParse(buf);
-      // Return the text for manual processing
-      parsedGuests = [{ _rawText: pdfData.text, _type: 'pdf' }];
+      const pdfText = pdfData.text;
+
+      if (!pdfText || pdfText.trim().length < 10) {
+        return res.status(400).json({ error: 'Il PDF non contiene testo estraibile.' });
+      }
+
+      parsedGuests = await aiParseGuestData(pdfText, 'PDF');
     }
 
     // Clean up
     try { fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
+
+    if (parsedGuests.length === 0) {
+      return res.status(400).json({ error: 'Nessun ospite trovato nel file. Verifica il contenuto del file e riprova.' });
+    }
 
     // Save import record
     const importRecord = await prisma.guestImport.create({
@@ -396,7 +419,13 @@ router.post('/import/:importId/confirm', async (req, res) => {
     const results = [];
 
     for (const g of guests) {
-      const { companions, flights, _rawText, _type, ...guestData } = g;
+      const { companions, flights, _rawText, _type, title, organization, ...guestData } = g;
+
+      // Merge title/organization into bio if present (AI-extracted fields)
+      if (title || organization) {
+        const parts = [title, organization, guestData.bio].filter(Boolean);
+        guestData.bio = parts.join(' — ');
+      }
 
       // Clean dates
       if (guestData.checkInDate) guestData.checkInDate = new Date(guestData.checkInDate);
@@ -680,6 +709,124 @@ ${JSON.stringify(guestSummary, null, 2)}`;
     res.status(500).json({ error: err.message });
   }
 });
+
+// ============================================================
+// AI-POWERED IMPORT
+// ============================================================
+
+async function aiParseGuestData(rawText, sourceType) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY non configurata — impossibile usare AI per il parsing');
+
+  const Anthropic = (await import('@anthropic-ai/sdk')).default;
+  const client = new Anthropic({ apiKey });
+
+  const prompt = `Sei un sistema di data extraction per la gestione ospiti di un evento VIP. Analizza il seguente testo estratto da un file ${sourceType} e identifica TUTTI gli ospiti menzionati.
+
+Per ciascun ospite, estrai TUTTI i campi disponibili nel testo. Rispondi ESCLUSIVAMENTE con un array JSON valido (nessun testo prima o dopo).
+
+Schema per ogni ospite:
+{
+  "firstName": "nome",
+  "lastName": "cognome",
+  "email": "email o null",
+  "phone": "telefono o null",
+  "roomType": "tipo camera o null",
+  "checkInDate": "data check-in YYYY-MM-DD o null",
+  "checkOutDate": "data check-out YYYY-MM-DD o null",
+  "dietaryRestrictions": "restrizioni alimentari o null",
+  "mobilityNeeds": "esigenze mobilità o null",
+  "medicalInfo": "info mediche o null",
+  "specialRequests": "richieste speciali o null",
+  "passportCountry": "paese passaporto o null",
+  "passportNumber": "numero passaporto o null",
+  "dateOfBirth": "data nascita o null",
+  "city": "città o null",
+  "state": "stato/provincia o null",
+  "bio": "biografia/descrizione della persona o null",
+  "title": "titolo professionale o null",
+  "organization": "organizzazione/azienda o null",
+  "companions": [{"fullName": "nome accompagnatore", "relationship": "relazione o null"}],
+  "flights": [{
+    "direction": "ARRIVAL o DEPARTURE",
+    "departureAirport": "codice aeroporto partenza o null",
+    "arrivalAirport": "codice aeroporto arrivo o null",
+    "airline": "compagnia aerea o null",
+    "flightNumber": "numero volo o null",
+    "date": "data volo YYYY-MM-DD o null",
+    "departureTime": "orario partenza o null",
+    "arrivalTime": "orario arrivo o null"
+  }]
+}
+
+REGOLE:
+- Se trovi coppie (es. "Mario e Lucia Rossi"), crea l'ospite principale e aggiungi il partner come companion
+- Se il testo contiene biografie, abbinale agli ospiti corrispondenti nel campo "bio"
+- Interpreta intelligentemente i dati: "allergico alle noci" → dietaryRestrictions, "sedia a rotelle" → mobilityNeeds
+- Se una data è in formato americano (MM/DD/YYYY) convertila a YYYY-MM-DD
+- NON inventare dati: se un campo non è presente nel testo, usa null
+- Se non riesci a identificare nessun ospite, rispondi con un array vuoto []
+
+TESTO DA ANALIZZARE:
+${rawText.substring(0, 15000)}`;
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }]
+  });
+
+  const responseText = response.content[0]?.text || '[]';
+
+  // Extract JSON from response (handle possible markdown code blocks)
+  let jsonStr = responseText;
+  const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+  if (jsonMatch) jsonStr = jsonMatch[0];
+
+  try {
+    const parsed = JSON.parse(jsonStr);
+    if (!Array.isArray(parsed)) return [];
+    // Ensure all guests have required fields
+    return parsed.map(g => ({
+      firstName: g.firstName || '',
+      lastName: g.lastName || '',
+      email: g.email || null,
+      phone: g.phone || null,
+      roomType: g.roomType || null,
+      checkInDate: g.checkInDate || null,
+      checkOutDate: g.checkOutDate || null,
+      dietaryRestrictions: g.dietaryRestrictions || null,
+      mobilityNeeds: g.mobilityNeeds || null,
+      medicalInfo: g.medicalInfo || null,
+      specialRequests: g.specialRequests || null,
+      passportCountry: g.passportCountry || null,
+      passportNumber: g.passportNumber || null,
+      dateOfBirth: g.dateOfBirth || null,
+      city: g.city || null,
+      state: g.state || null,
+      bio: g.bio || null,
+      title: g.title || null,
+      organization: g.organization || null,
+      companions: (g.companions || []).map(c => ({
+        fullName: c.fullName || 'N/A',
+        relationship: c.relationship || null
+      })),
+      flights: (g.flights || []).map(f => ({
+        direction: f.direction || 'ARRIVAL',
+        departureAirport: f.departureAirport || null,
+        arrivalAirport: f.arrivalAirport || null,
+        airline: f.airline || null,
+        flightNumber: f.flightNumber || null,
+        date: f.date || null,
+        departureTime: f.departureTime || null,
+        arrivalTime: f.arrivalTime || null
+      }))
+    })).filter(g => g.firstName || g.lastName);
+  } catch (e) {
+    console.error('AI parse error:', e.message, responseText.substring(0, 200));
+    return [];
+  }
+}
 
 // ============================================================
 // HELPERS
