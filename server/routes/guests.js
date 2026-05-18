@@ -763,12 +763,15 @@ DATI DA ANALIZZARE:
 ${rawText.substring(0, 50000)}`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-4-5-20250514',
     max_tokens: 16384,
-    messages: [{ role: 'user', content: prompt + '\n\nRispondi ORA con il JSON array. Inizia con [' }]
+    messages: [
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: '[' }
+    ]
   });
 
-  let responseText = response.content[0]?.text || '[]';
+  let responseText = '[' + (response.content[0]?.text || ']');
 
   // Clean up: remove markdown code blocks if present
   responseText = responseText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
