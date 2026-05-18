@@ -176,14 +176,142 @@ router.post('/import/upload', upload.single('file'), async (req, res) => {
     let parsedGuests = [];
 
     if (ext === '.xlsx' || ext === '.xls') {
-      // AI-powered Excel parsing: convert all sheets to CSV, let Claude understand context
+      // Smart Excel pre-processing: clean data before sending to AI
       const XLSX = (await import('xlsx')).default;
       const workbook = XLSX.readFile(filePath);
 
       let allText = '';
       for (const sheetName of workbook.SheetNames) {
-        const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
-        allText += `=== FOGLIO: ${sheetName} ===\n${csv}\n\n`;
+        const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
+        if (!rawRows || rawRows.length < 2) continue;
+
+        // Detect header structure: survey sheets often have 2 header rows
+        // Row 0 = group headers (long text), Row 1 = field names (short text)
+        let headerRowIdx = 0;
+        let headers = [];
+
+        const row0 = rawRows[0] || [];
+        const row1 = rawRows[1] || [];
+
+        // Count meaningful (non-empty, non-nbsp) cells in each row
+        const isReal = v => v && String(v).trim() && String(v).trim() !== '\xa0';
+        const row0Real = row0.filter(isReal);
+        const row1Real = row1.filter(v => isReal(v) && String(v).length > 1 && String(v).length < 100);
+
+        // Two-row header detection:
+        // Row 1 has significantly more field-like values than Row 0, OR
+        // Row 0 has long text (group headers) and Row 1 has short field names
+        const row0AvgLen = row0Real.length > 0 ? row0Real.reduce((a, v) => a + String(v).length, 0) / row0Real.length : 0;
+        const isTwoRowHeader = (row1Real.length > row0Real.length * 1.5 && row1Real.length > 5) ||
+                               (row0AvgLen > 40 && row1Real.length > 5);
+
+        if (isTwoRowHeader) {
+          // Two-row headers (like SurveyMonkey): use row 1 as field names
+          // Add context from row 0 group headers to disambiguate duplicates
+          headerRowIdx = 1;
+          let lastGroup = '';
+          const seenNames = {};
+          headers = row1.map((v, i) => {
+            // Track the current group from row 0
+            const grp = String(row0[i] || '').trim();
+            if (grp && grp !== '\xa0' && grp.length > 2) {
+              // Extract short context from group header
+              if (grp.toLowerCase().includes('emergency')) lastGroup = 'Emergency';
+              else if (grp.toLowerCase().includes('assistant')) lastGroup = 'Assistant';
+              else if (grp.toLowerCase().includes('+1') || grp.toLowerCase().includes('accompanying')) lastGroup = 'Companion';
+              else if (grp.toLowerCase().includes('arrival') || grp.toLowerCase().includes('commence')) lastGroup = 'Arrival';
+              else if (grp.toLowerCase().includes('departure')) lastGroup = 'Departure';
+              else if (grp.toLowerCase().includes('passport')) lastGroup = 'Passport';
+              else if (grp.toLowerCase().includes('contact')) lastGroup = 'Contact';
+              else if (grp.toLowerCase().includes('hotel') || grp.toLowerCase().includes('upgrade')) lastGroup = 'Hotel Upgrade';
+              else if (grp.toLowerCase().includes('whatsapp')) lastGroup = 'WhatsApp';
+              else if (grp.toLowerCase().includes('dietary')) lastGroup = 'Dietary';
+              else if (grp.toLowerCase().includes('mobility')) lastGroup = 'Mobility';
+              else if (grp.toLowerCase().includes('medical')) lastGroup = 'Medical';
+              else if (grp.toLowerCase().includes('privacy')) lastGroup = 'Privacy';
+              else if (grp.toLowerCase().includes('image')) lastGroup = 'ImageRights';
+              else if (grp.toLowerCase().includes('cancellation')) lastGroup = 'Cancellation';
+              else if (grp.toLowerCase().includes('liability') || grp.toLowerCase().includes('assumption')) lastGroup = 'Liability';
+              else if (grp.toLowerCase().includes('insurance')) lastGroup = 'Insurance';
+              else if (grp.toLowerCase().includes('comment') || grp.toLowerCase().includes('special')) lastGroup = 'Comments';
+            }
+
+            let name = String(v || '').trim();
+            if (!name || name === '\xa0') return '';
+
+            // Replace generic "Response" with group context
+            if (name.toLowerCase() === 'response' && lastGroup) {
+              name = `${lastGroup} Consent`;
+            }
+
+            // Disambiguate duplicate field names with group context
+            if (seenNames[name]) {
+              name = lastGroup ? `${lastGroup} ${name}` : `${name} ${seenNames[name] + 1}`;
+            }
+            seenNames[name] = (seenNames[name] || 0) + 1;
+
+            return name;
+          });
+        } else {
+          headers = row0.map(v => String(v || '').trim());
+        }
+
+        // Filter out useless columns: consent forms, legal, image uploads, privacy, etc.
+        // Skip only truly useless columns (image uploads, empty headers)
+        // KEEP: consent/privacy/whatsapp columns — user wants these tracked
+        const skipPatterns = [
+          /passport.*upload/i, /^open-ended response$/i,
+          /^\s*$/, /^\xa0$/
+        ];
+
+        const keepIndices = [];
+        const cleanHeaders = [];
+        headers.forEach((h, i) => {
+          if (!h || h === '\xa0' || h === ' ') return;
+          if (skipPatterns.some(p => p.test(h))) return;
+          // Skip "Yes, I have read..." type consent value columns
+          if (h.startsWith('Yes, I')) return;
+          keepIndices.push(i);
+          cleanHeaders.push(h);
+        });
+
+        // Build clean data rows as JSON objects
+        const dataStartRow = headerRowIdx + 1;
+        const dataRows = rawRows.slice(dataStartRow);
+
+        allText += `=== FOGLIO: ${sheetName} ===\n`;
+
+        if (cleanHeaders.length > 0 && keepIndices.length > 0) {
+          // Output as structured records
+          for (const row of dataRows) {
+            const record = {};
+            let hasData = false;
+            keepIndices.forEach((colIdx, i) => {
+              let val = row[colIdx];
+              if (val === undefined || val === null || val === '' || val === '\xa0') return;
+              val = String(val).trim();
+              if (!val) return;
+              // Skip consent/agreement values in data cells too
+              if (val.startsWith('Yes, I have read') || val.startsWith('Yes, I accept')) return;
+              record[cleanHeaders[i]] = val;
+              hasData = true;
+            });
+            // Skip rows with only 1 field (summary rows like total counts)
+            if (hasData && Object.keys(record).length > 1) {
+              allText += JSON.stringify(record) + '\n';
+            }
+          }
+        } else {
+          // Fallback: simple CSV for sheets with unclear structure
+          const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+          allText += csv.substring(0, 8000);
+        }
+
+        allText += '\n\n';
+      }
+
+      if (!allText.trim()) {
+        return res.status(400).json({ error: 'Il file Excel non contiene dati leggibili.' });
       }
 
       parsedGuests = await aiParseGuestData(allText, 'EXCEL');
@@ -249,6 +377,11 @@ router.post('/import/:importId/confirm', async (req, res) => {
       guestData.hotelRoomsNeeded = guestData.hotelRoomsNeeded ? parseInt(guestData.hotelRoomsNeeded) : null;
       guestData.whatsappOptIn = guestData.whatsappOptIn === true;
       guestData.healthAttestation = guestData.healthAttestation === true;
+      guestData.privacyConsent = guestData.privacyConsent === true;
+      guestData.imageRightsConsent = guestData.imageRightsConsent === true;
+      guestData.liabilityConsent = guestData.liabilityConsent === true;
+      guestData.cancellationConsent = guestData.cancellationConsent === true;
+      guestData.insuranceConsent = guestData.insuranceConsent === true;
 
       const created = await prisma.guest.create({
         data: {
@@ -589,7 +722,12 @@ Schema per ogni ospite:
   "bio": "biografia della persona o null",
   "title": "titolo professionale o null",
   "organization": "organizzazione o null",
-  "whatsappOptIn": "boolean",
+  "whatsappOptIn": "boolean — true se l'ospite ha accettato il gruppo WhatsApp",
+  "privacyConsent": "boolean — true se ha accettato il trattamento dati personali",
+  "imageRightsConsent": "boolean — true se ha accettato i diritti di immagine",
+  "liabilityConsent": "boolean — true se ha accettato assunzione di rischio/liability",
+  "cancellationConsent": "boolean — true se ha accettato la cancellation policy",
+  "insuranceConsent": "boolean — true se ha accettato la travel/medical insurance policy",
   "assistantName": "string o null",
   "assistantEmail": "string o null",
   "assistantPhone": "string o null",
@@ -618,7 +756,7 @@ ALTRE REGOLE:
 - Ogni ospite DEVE avere firstName e lastName (almeno uno dei due non vuoto)
 
 DATI DA ANALIZZARE:
-${rawText.substring(0, 25000)}`;
+${rawText.substring(0, 50000)}`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
@@ -672,6 +810,11 @@ ${rawText.substring(0, 25000)}`;
       title: g.title || null,
       organization: g.organization || null,
       whatsappOptIn: g.whatsappOptIn === true,
+      privacyConsent: g.privacyConsent === true,
+      imageRightsConsent: g.imageRightsConsent === true,
+      liabilityConsent: g.liabilityConsent === true,
+      cancellationConsent: g.cancellationConsent === true,
+      insuranceConsent: g.insuranceConsent === true,
       companions: (g.companions || []).map(c => ({
         fullName: c.fullName || 'N/A',
         relationship: c.relationship || null

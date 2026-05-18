@@ -163,6 +163,13 @@ model Guest {
   specialRequests     String?
   notes               String?
 
+  // Privacy & consent preferences
+  privacyConsent      Boolean   @default(false)
+  imageRightsConsent  Boolean   @default(false)
+  liabilityConsent    Boolean   @default(false)
+  cancellationConsent Boolean   @default(false)
+  insuranceConsent    Boolean   @default(false)
+
   companions          GuestCompanion[]
   flights             GuestFlight[]
 
