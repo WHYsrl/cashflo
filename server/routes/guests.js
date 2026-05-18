@@ -693,7 +693,11 @@ COME CLASSIFICARE I DATI:
 - Codici tipo "LH402", "UA123", "AZ610" → flightNumber
 - "FCO", "JFK", "EWR", "TLV" → codici aeroporto
 
-Rispondi ESCLUSIVAMENTE con un array JSON valido (nessun testo prima o dopo, nessun markdown).
+FORMATO OUTPUT OBBLIGATORIO:
+- Rispondi SOLO con l'array JSON. NESSUN testo prima, dopo, o intorno.
+- NESSUN commento, NESSUNA spiegazione, NESSUN markdown (no \`\`\`).
+- La tua risposta DEVE iniziare con [ e finire con ]
+- Usa valori COMPATTI: evita spazi inutili nei campi stringa
 
 Schema per ogni ospite:
 {
@@ -760,16 +764,34 @@ ${rawText.substring(0, 50000)}`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 8192,
-    messages: [{ role: 'user', content: prompt }]
+    max_tokens: 16384,
+    messages: [
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: '[' }  // Force JSON start
+    ]
   });
 
-  const responseText = response.content[0]?.text || '[]';
+  let responseText = '[' + (response.content[0]?.text || ']');
 
-  // Extract JSON from response (handle possible markdown code blocks)
+  // Clean up: remove markdown code blocks if present
+  responseText = responseText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+
+  // Extract the JSON array
   let jsonStr = responseText;
   const jsonMatch = responseText.match(/\[[\s\S]*\]/);
   if (jsonMatch) jsonStr = jsonMatch[0];
+
+  // If JSON was truncated (stop_reason = max_tokens), try to recover
+  if (response.stop_reason === 'max_tokens' || response.stop_reason === 'end_turn') {
+    // Try to close truncated JSON by finding the last complete object
+    try { JSON.parse(jsonStr); } catch (e) {
+      // Find last complete object (ends with })
+      const lastBrace = jsonStr.lastIndexOf('}');
+      if (lastBrace > 0) {
+        jsonStr = jsonStr.substring(0, lastBrace + 1) + ']';
+      }
+    }
+  }
 
   try {
     const parsed = JSON.parse(jsonStr);
