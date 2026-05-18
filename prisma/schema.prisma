@@ -109,3 +109,113 @@ enum DocumentType {
   RICEVUTA
   ALTRO
 }
+
+// ==========================================
+// GUEST MANAGEMENT
+// ==========================================
+
+model Guest {
+  id                  String    @id @default(cuid())
+  firstName           String
+  lastName            String
+  fullName            String?
+  email               String?
+  phone               String?
+  phoneOffice         String?
+  mailingAddress      String?
+  city                String?
+  state               String?
+  zip                 String?
+
+  // Hotel
+  hotelRoomsNeeded    Int?
+  roomType            String?
+  checkInDate         DateTime?
+  checkOutDate        DateTime?
+  hotelUpgrade        String?
+
+  // Passport
+  passportCountry     String?
+  passportNumber      String?
+  passportExpiry      String?
+  dateOfBirth         String?
+
+  // Dietary & Medical
+  dietaryRestrictions String?
+  mobilityNeeds       String?
+  medicalInfo         String?
+  healthAttestation   Boolean   @default(false)
+
+  // Assistant
+  assistantName       String?
+  assistantEmail      String?
+  assistantPhone      String?
+
+  // Emergency contact
+  emergencyName       String?
+  emergencyPhone      String?
+  emergencyEmail      String?
+  emergencyRelation   String?
+
+  // Bio & misc
+  bio                 String?
+  whatsappOptIn       Boolean   @default(false)
+  specialRequests     String?
+  notes               String?
+
+  companions          GuestCompanion[]
+  flights             GuestFlight[]
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model GuestCompanion {
+  id           String  @id @default(cuid())
+  guestId      String
+  guest        Guest   @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  fullName     String
+  relationship String?
+  notes        String?
+  createdAt    DateTime @default(now())
+}
+
+model GuestFlight {
+  id               String    @id @default(cuid())
+  guestId          String
+  guest            Guest     @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  direction        FlightDirection
+  departureAirport String?
+  arrivalAirport   String?
+  airline          String?
+  flightNumber     String?
+  date             DateTime?
+  departureTime    String?
+  arrivalDay       DateTime?
+  arrivalTime      String?
+  notes            String?
+  createdAt        DateTime  @default(now())
+}
+
+model GuestImport {
+  id         String   @id @default(cuid())
+  fileName   String
+  fileType   String   // EXCEL, PDF
+  status     ImportStatus @default(PENDING)
+  data       Json?    // parsed preview data
+  errors     Json?    // parsing errors
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+enum FlightDirection {
+  ARRIVAL
+  DEPARTURE
+}
+
+enum ImportStatus {
+  PENDING
+  REVIEWED
+  CONFIRMED
+  REJECTED
+}

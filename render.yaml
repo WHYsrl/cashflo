@@ -12,7 +12,7 @@ services:
     plan: starter
     region: frankfurt
     buildCommand: npm install && npx prisma generate && cd client && npm install && npx vite build && cd ..
-    startCommand: node prisma/migrate-fields.js && npx prisma db push --accept-data-loss && npm start
+    startCommand: mkdir -p uploads/guests && node prisma/migrate-fields.js && npx prisma db push --accept-data-loss && npm start
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -22,3 +22,5 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
+      - key: GUEST_PASSWORD
+        sync: false

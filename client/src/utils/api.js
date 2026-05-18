@@ -49,4 +49,21 @@ export const api = {
   // AI
   parseDocument: (formData) => fetch(`${BASE}/ai/parse-document`, { method: 'POST', body: formData }).then(r => r.json()),
   parseText: (text, model) => request('/ai/parse-text', { method: 'POST', body: JSON.stringify({ text, model }) }),
+
+  // Guests (auth required)
+  guestAuth: (password) => request('/guests/auth', { method: 'POST', body: JSON.stringify({ password }) }),
+  getGuests: (token) => request('/guests', { headers: { 'x-guest-auth': token } }),
+  getGuest: (id, token) => request(`/guests/${id}`, { headers: { 'x-guest-auth': token } }),
+  createGuest: (data, token) => request('/guests', { method: 'POST', body: JSON.stringify(data), headers: { 'x-guest-auth': token } }),
+  updateGuest: (id, data, token) => request(`/guests/${id}`, { method: 'PUT', body: JSON.stringify(data), headers: { 'x-guest-auth': token } }),
+  deleteGuest: (id, token) => request(`/guests/${id}`, { method: 'DELETE', headers: { 'x-guest-auth': token } }),
+  addCompanion: (guestId, data, token) => request(`/guests/${guestId}/companions`, { method: 'POST', body: JSON.stringify(data), headers: { 'x-guest-auth': token } }),
+  deleteCompanion: (guestId, compId, token) => request(`/guests/${guestId}/companions/${compId}`, { method: 'DELETE', headers: { 'x-guest-auth': token } }),
+  addFlight: (guestId, data, token) => request(`/guests/${guestId}/flights`, { method: 'POST', body: JSON.stringify(data), headers: { 'x-guest-auth': token } }),
+  deleteFlight: (guestId, flightId, token) => request(`/guests/${guestId}/flights/${flightId}`, { method: 'DELETE', headers: { 'x-guest-auth': token } }),
+  importGuestsUpload: (formData, token) => fetch(`${BASE}/guests/import/upload`, { method: 'POST', body: formData, headers: { 'x-guest-auth': token } }).then(r => r.json()),
+  importGuestsConfirm: (importId, guests, token) => request(`/guests/import/${importId}/confirm`, { method: 'POST', body: JSON.stringify({ guests }), headers: { 'x-guest-auth': token } }),
+  generateMeetGreetEmail: (guestIds, language, token) => request('/guests/email/meet-greet', { method: 'POST', body: JSON.stringify({ guestIds, language }), headers: { 'x-guest-auth': token } }),
+  generateTransportEmail: (guestIds, language, token) => request('/guests/email/transportation', { method: 'POST', body: JSON.stringify({ guestIds, language }), headers: { 'x-guest-auth': token } }),
+  getGuestInsights: (token) => request('/guests/insights', { method: 'POST', body: '{}', headers: { 'x-guest-auth': token } }),
 };

@@ -7,6 +7,7 @@ import paymentsRouter from './routes/payments.js';
 import documentsRouter from './routes/documents.js';
 import dashboardRouter from './routes/dashboard.js';
 import aiRouter from './routes/ai.js';
+import guestsRouter from './routes/guests.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -22,6 +23,7 @@ app.use('/api/payments', paymentsRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/ai', aiRouter);
+app.use('/api/guests', guestsRouter);
 
 // Serve React build in production
 const clientDist = path.join(__dirname, '../client/dist');
