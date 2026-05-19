@@ -226,6 +226,9 @@ export default function GuestTransport() {
             <option value="en">English</option>
             <option value="it">Italiano</option>
           </select>
+          <button className="btn" onClick={() => window.open(api.exportTransportUrl(token), '_blank')} style={{ whiteSpace: 'nowrap' }}>
+            📥 Export Excel
+          </button>
           <button className="btn" onClick={checkFlights} disabled={flightLoading} style={{ whiteSpace: 'nowrap' }}>
             {flightLoading ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2, display: 'inline-block', marginRight: 6 }} /> Controllo...</> : '✈️ Controllo Voli'}
           </button>
