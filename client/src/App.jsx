@@ -25,9 +25,6 @@ function GuestNav() {
       <NavLink to="/guests" end className={({ isActive }) => isActive ? 'active' : ''}>
         👥 Ospiti
       </NavLink>
-      <NavLink to="/guests/import" className={({ isActive }) => isActive ? 'active' : ''}>
-        📥 Import Dati
-      </NavLink>
       <NavLink to="/guests/meet-greet" className={({ isActive }) => isActive ? 'active' : ''}>
         🤝 Meet & Greet
       </NavLink>

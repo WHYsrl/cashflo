@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../utils/api.js';
 import { formatDate } from '../utils/format.js';
@@ -11,60 +11,61 @@ function useGuestAuth() {
 }
 
 /* ── All available columns with metadata ── */
+/* sortValue: extracts a sortable primitive (string/number) from a guest */
 const ALL_COLUMNS = [
   // Personal
-  { key: 'name', label: 'Ospite', group: 'Anagrafica', default: true, render: g => `${g.firstName} ${g.lastName}`, bold: true },
-  { key: 'email', label: 'Email', group: 'Anagrafica', default: false, render: g => g.email || '-' },
-  { key: 'phone', label: 'Telefono', group: 'Anagrafica', default: false, render: g => g.phone || '-' },
-  { key: 'phoneOffice', label: 'Tel. Ufficio', group: 'Anagrafica', default: false, render: g => g.phoneOffice || '-' },
-  { key: 'mailingAddress', label: 'Indirizzo', group: 'Anagrafica', default: false, render: g => g.mailingAddress || '-' },
-  { key: 'city', label: 'Città', group: 'Anagrafica', default: false, render: g => g.city || '-' },
-  { key: 'state', label: 'Stato', group: 'Anagrafica', default: false, render: g => g.state || '-' },
-  { key: 'zip', label: 'CAP', group: 'Anagrafica', default: false, render: g => g.zip || '-' },
+  { key: 'name', label: 'Ospite', group: 'Anagrafica', default: true, render: g => `${g.firstName} ${g.lastName}`, sortValue: g => `${g.lastName} ${g.firstName}`.toLowerCase(), bold: true },
+  { key: 'email', label: 'Email', group: 'Anagrafica', default: false, render: g => g.email || '-', sortValue: g => (g.email || '').toLowerCase() },
+  { key: 'phone', label: 'Telefono', group: 'Anagrafica', default: false, render: g => g.phone || '-', sortValue: g => g.phone || '' },
+  { key: 'phoneOffice', label: 'Tel. Ufficio', group: 'Anagrafica', default: false, render: g => g.phoneOffice || '-', sortValue: g => g.phoneOffice || '' },
+  { key: 'mailingAddress', label: 'Indirizzo', group: 'Anagrafica', default: false, render: g => g.mailingAddress || '-', sortValue: g => (g.mailingAddress || '').toLowerCase() },
+  { key: 'city', label: 'Città', group: 'Anagrafica', default: false, render: g => g.city || '-', sortValue: g => (g.city || '').toLowerCase() },
+  { key: 'state', label: 'Stato', group: 'Anagrafica', default: false, render: g => g.state || '-', sortValue: g => (g.state || '').toLowerCase() },
+  { key: 'zip', label: 'CAP', group: 'Anagrafica', default: false, render: g => g.zip || '-', sortValue: g => g.zip || '' },
   // Companions
-  { key: 'companions', label: 'Accompagnatori', group: 'Anagrafica', default: true, render: g => g.companions?.map(c => c.fullName).join(', ') || '-', small: true },
-  { key: 'pax', label: 'Persone', group: 'Anagrafica', default: true, render: g => 1 + (g.companions?.length || 0) },
+  { key: 'companions', label: 'Accompagnatori', group: 'Anagrafica', default: true, render: g => g.companions?.map(c => c.fullName).join(', ') || '-', sortValue: g => g.companions?.length || 0, small: true },
+  { key: 'pax', label: 'Persone', group: 'Anagrafica', default: true, render: g => 1 + (g.companions?.length || 0), sortValue: g => 1 + (g.companions?.length || 0) },
   // Flight
-  { key: 'arrivalFlight', label: 'Volo Arrivo', group: 'Voli', default: true, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.airline || ''} ${f.flightNumber || ''}`.trim() || '-' : '-'; }, small: true },
-  { key: 'arrivalDate', label: 'Arrivo', group: 'Voli', default: true, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.arrivalDay ? formatDate(f.arrivalDay) : f.date ? formatDate(f.date) : '-'}${f.arrivalTime ? ` ${f.arrivalTime}` : ''}` : '-'; }, small: true },
-  { key: 'arrivalFrom', label: 'Da', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f?.departureAirport || '-'; }, small: true },
-  { key: 'arrivalTo', label: 'A', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f?.arrivalAirport || '-'; }, small: true },
-  { key: 'departureFlight', label: 'Volo Partenza', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'DEPARTURE'); return f ? `${f.airline || ''} ${f.flightNumber || ''}`.trim() || '-' : '-'; }, small: true },
-  { key: 'departureDate', label: 'Partenza', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'DEPARTURE'); return f ? `${f.date ? formatDate(f.date) : '-'}${f.departureTime ? ` ${f.departureTime}` : ''}` : '-'; }, small: true },
+  { key: 'arrivalFlight', label: 'Volo Arrivo', group: 'Voli', default: true, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.airline || ''} ${f.flightNumber || ''}`.trim() || '-' : '-'; }, sortValue: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.airline || ''} ${f.flightNumber || ''}` : ''; }, small: true },
+  { key: 'arrivalDate', label: 'Arrivo', group: 'Voli', default: true, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.arrivalDay ? formatDate(f.arrivalDay) : f.date ? formatDate(f.date) : '-'}${f.arrivalTime ? ` ${f.arrivalTime}` : ''}` : '-'; }, sortValue: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.arrivalDay || f.date || ''}${f.arrivalTime || ''}` : ''; }, small: true },
+  { key: 'arrivalFrom', label: 'Da', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f?.departureAirport || '-'; }, sortValue: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return (f?.departureAirport || '').toLowerCase(); }, small: true },
+  { key: 'arrivalTo', label: 'A', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f?.arrivalAirport || '-'; }, sortValue: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return (f?.arrivalAirport || '').toLowerCase(); }, small: true },
+  { key: 'departureFlight', label: 'Volo Partenza', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'DEPARTURE'); return f ? `${f.airline || ''} ${f.flightNumber || ''}`.trim() || '-' : '-'; }, sortValue: g => { const f = g.flights?.find(f => f.direction === 'DEPARTURE'); return f ? `${f.airline || ''} ${f.flightNumber || ''}` : ''; }, small: true },
+  { key: 'departureDate', label: 'Partenza', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'DEPARTURE'); return f ? `${f.date ? formatDate(f.date) : '-'}${f.departureTime ? ` ${f.departureTime}` : ''}` : '-'; }, sortValue: g => { const f = g.flights?.find(f => f.direction === 'DEPARTURE'); return f ? `${f.date || ''}${f.departureTime || ''}` : ''; }, small: true },
   // Hotel
-  { key: 'roomType', label: 'Camera', group: 'Hotel', default: true, render: g => g.roomType || '-', small: true },
-  { key: 'hotelRoomsNeeded', label: 'N. Camere', group: 'Hotel', default: false, render: g => g.hotelRoomsNeeded || '-' },
-  { key: 'checkIn', label: 'Check-in', group: 'Hotel', default: true, render: g => g.checkInDate ? formatDate(g.checkInDate) : '-', small: true },
-  { key: 'checkOut', label: 'Check-out', group: 'Hotel', default: false, render: g => g.checkOutDate ? formatDate(g.checkOutDate) : '-', small: true },
-  { key: 'hotelUpgrade', label: 'Upgrade', group: 'Hotel', default: false, render: g => g.hotelUpgrade || '-', small: true },
+  { key: 'roomType', label: 'Camera', group: 'Hotel', default: true, render: g => g.roomType || '-', sortValue: g => (g.roomType || '').toLowerCase(), small: true },
+  { key: 'hotelRoomsNeeded', label: 'N. Camere', group: 'Hotel', default: false, render: g => g.hotelRoomsNeeded || '-', sortValue: g => g.hotelRoomsNeeded || 0 },
+  { key: 'checkIn', label: 'Check-in', group: 'Hotel', default: true, render: g => g.checkInDate ? formatDate(g.checkInDate) : '-', sortValue: g => g.checkInDate || '', small: true },
+  { key: 'checkOut', label: 'Check-out', group: 'Hotel', default: false, render: g => g.checkOutDate ? formatDate(g.checkOutDate) : '-', sortValue: g => g.checkOutDate || '', small: true },
+  { key: 'hotelUpgrade', label: 'Upgrade', group: 'Hotel', default: false, render: g => g.hotelUpgrade || '-', sortValue: g => (g.hotelUpgrade || '').toLowerCase(), small: true },
   // Dietary & Medical
-  { key: 'dietary', label: 'Dieta', group: 'Dieta & Salute', default: true, render: g => g.dietaryRestrictions && g.dietaryRestrictions.toLowerCase() !== 'none' ? g.dietaryRestrictions.substring(0, 30) + (g.dietaryRestrictions.length > 30 ? '...' : '') : '-', small: true },
-  { key: 'mobility', label: 'Mobilità', group: 'Dieta & Salute', default: false, render: g => g.mobilityNeeds && !['none','n/a','no'].includes((g.mobilityNeeds||'').toLowerCase().trim()) ? g.mobilityNeeds : '-', small: true },
-  { key: 'medical', label: 'Info Mediche', group: 'Dieta & Salute', default: false, render: g => g.medicalInfo || '-', small: true },
-  { key: 'healthAttestation', label: 'Attestazione Salute', group: 'Dieta & Salute', default: false, render: g => g.healthAttestation ? '✅' : '—' },
+  { key: 'dietary', label: 'Dieta', group: 'Dieta & Salute', default: true, render: g => g.dietaryRestrictions && g.dietaryRestrictions.toLowerCase() !== 'none' ? g.dietaryRestrictions.substring(0, 30) + (g.dietaryRestrictions.length > 30 ? '...' : '') : '-', sortValue: g => (g.dietaryRestrictions || '').toLowerCase(), small: true },
+  { key: 'mobility', label: 'Mobilità', group: 'Dieta & Salute', default: false, render: g => g.mobilityNeeds && !['none','n/a','no'].includes((g.mobilityNeeds||'').toLowerCase().trim()) ? g.mobilityNeeds : '-', sortValue: g => (g.mobilityNeeds || '').toLowerCase(), small: true },
+  { key: 'medical', label: 'Info Mediche', group: 'Dieta & Salute', default: false, render: g => g.medicalInfo || '-', sortValue: g => (g.medicalInfo || '').toLowerCase(), small: true },
+  { key: 'healthAttestation', label: 'Attestazione Salute', group: 'Dieta & Salute', default: false, render: g => g.healthAttestation ? '✅' : '—', sortValue: g => g.healthAttestation ? 1 : 0 },
   // Passport
-  { key: 'passportCountry', label: 'Paese Passaporto', group: 'Passaporto', default: false, render: g => g.passportCountry || '-' },
-  { key: 'passportNumber', label: 'N. Passaporto', group: 'Passaporto', default: false, render: g => g.passportNumber || '-' },
-  { key: 'passportExpiry', label: 'Scadenza Pass.', group: 'Passaporto', default: false, render: g => g.passportExpiry || '-', small: true },
-  { key: 'dateOfBirth', label: 'Data Nascita', group: 'Passaporto', default: false, render: g => g.dateOfBirth || '-', small: true },
+  { key: 'passportCountry', label: 'Paese Passaporto', group: 'Passaporto', default: false, render: g => g.passportCountry || '-', sortValue: g => (g.passportCountry || '').toLowerCase() },
+  { key: 'passportNumber', label: 'N. Passaporto', group: 'Passaporto', default: false, render: g => g.passportNumber || '-', sortValue: g => g.passportNumber || '' },
+  { key: 'passportExpiry', label: 'Scadenza Pass.', group: 'Passaporto', default: false, render: g => g.passportExpiry || '-', sortValue: g => g.passportExpiry || '', small: true },
+  { key: 'dateOfBirth', label: 'Data Nascita', group: 'Passaporto', default: false, render: g => g.dateOfBirth || '-', sortValue: g => g.dateOfBirth || '', small: true },
   // Special
-  { key: 'specialRequests', label: 'Richieste Speciali', group: 'Extra', default: false, render: g => g.specialRequests ? g.specialRequests.substring(0, 40) + (g.specialRequests.length > 40 ? '...' : '') : '-', small: true },
-  { key: 'notes', label: 'Note', group: 'Extra', default: false, render: g => g.notes ? g.notes.substring(0, 40) + (g.notes.length > 40 ? '...' : '') : '-', small: true },
-  { key: 'bio', label: 'Bio', group: 'Extra', default: false, render: g => g.bio ? g.bio.substring(0, 40) + (g.bio.length > 40 ? '...' : '') : '-', small: true },
-  { key: 'whatsapp', label: 'WhatsApp', group: 'Extra', default: false, render: g => g.whatsappOptIn ? '✅' : '—' },
+  { key: 'specialRequests', label: 'Richieste Speciali', group: 'Extra', default: false, render: g => g.specialRequests ? g.specialRequests.substring(0, 40) + (g.specialRequests.length > 40 ? '...' : '') : '-', sortValue: g => (g.specialRequests || '').toLowerCase(), small: true },
+  { key: 'notes', label: 'Note', group: 'Extra', default: false, render: g => g.notes ? g.notes.substring(0, 40) + (g.notes.length > 40 ? '...' : '') : '-', sortValue: g => (g.notes || '').toLowerCase(), small: true },
+  { key: 'bio', label: 'Bio', group: 'Extra', default: false, render: g => g.bio ? g.bio.substring(0, 40) + (g.bio.length > 40 ? '...' : '') : '-', sortValue: g => (g.bio || '').toLowerCase(), small: true },
+  { key: 'whatsapp', label: 'WhatsApp', group: 'Extra', default: false, render: g => g.whatsappOptIn ? '✅' : '—', sortValue: g => g.whatsappOptIn ? 1 : 0 },
   // Assistant
-  { key: 'assistantName', label: 'Assistente', group: 'Contatti', default: false, render: g => g.assistantName || '-' },
-  { key: 'assistantEmail', label: 'Email Assist.', group: 'Contatti', default: false, render: g => g.assistantEmail || '-', small: true },
-  { key: 'assistantPhone', label: 'Tel. Assist.', group: 'Contatti', default: false, render: g => g.assistantPhone || '-', small: true },
+  { key: 'assistantName', label: 'Assistente', group: 'Contatti', default: false, render: g => g.assistantName || '-', sortValue: g => (g.assistantName || '').toLowerCase() },
+  { key: 'assistantEmail', label: 'Email Assist.', group: 'Contatti', default: false, render: g => g.assistantEmail || '-', sortValue: g => (g.assistantEmail || '').toLowerCase(), small: true },
+  { key: 'assistantPhone', label: 'Tel. Assist.', group: 'Contatti', default: false, render: g => g.assistantPhone || '-', sortValue: g => g.assistantPhone || '', small: true },
   // Emergency
-  { key: 'emergencyName', label: 'Emergenza', group: 'Contatti', default: false, render: g => g.emergencyName || '-' },
-  { key: 'emergencyPhone', label: 'Tel. Emergenza', group: 'Contatti', default: false, render: g => g.emergencyPhone || '-', small: true },
+  { key: 'emergencyName', label: 'Emergenza', group: 'Contatti', default: false, render: g => g.emergencyName || '-', sortValue: g => (g.emergencyName || '').toLowerCase() },
+  { key: 'emergencyPhone', label: 'Tel. Emergenza', group: 'Contatti', default: false, render: g => g.emergencyPhone || '-', sortValue: g => g.emergencyPhone || '', small: true },
   // Consent
-  { key: 'privacyConsent', label: 'Privacy', group: 'Consensi', default: false, render: g => g.privacyConsent ? '✅' : '❌' },
-  { key: 'imageRights', label: 'Dir. Immagine', group: 'Consensi', default: false, render: g => g.imageRightsConsent ? '✅' : '❌' },
-  { key: 'liability', label: 'Responsabilità', group: 'Consensi', default: false, render: g => g.liabilityConsent ? '✅' : '❌' },
-  { key: 'cancellation', label: 'Cancellazione', group: 'Consensi', default: false, render: g => g.cancellationConsent ? '✅' : '❌' },
-  { key: 'insurance', label: 'Assicurazione', group: 'Consensi', default: false, render: g => g.insuranceConsent ? '✅' : '❌' },
+  { key: 'privacyConsent', label: 'Privacy', group: 'Consensi', default: false, render: g => g.privacyConsent ? '✅' : '❌', sortValue: g => g.privacyConsent ? 1 : 0 },
+  { key: 'imageRights', label: 'Dir. Immagine', group: 'Consensi', default: false, render: g => g.imageRightsConsent ? '✅' : '❌', sortValue: g => g.imageRightsConsent ? 1 : 0 },
+  { key: 'liability', label: 'Responsabilità', group: 'Consensi', default: false, render: g => g.liabilityConsent ? '✅' : '❌', sortValue: g => g.liabilityConsent ? 1 : 0 },
+  { key: 'cancellation', label: 'Cancellazione', group: 'Consensi', default: false, render: g => g.cancellationConsent ? '✅' : '❌', sortValue: g => g.cancellationConsent ? 1 : 0 },
+  { key: 'insurance', label: 'Assicurazione', group: 'Consensi', default: false, render: g => g.insuranceConsent ? '✅' : '❌', sortValue: g => g.insuranceConsent ? 1 : 0 },
 ];
 
 const DEFAULT_COLS = ALL_COLUMNS.filter(c => c.default).map(c => c.key);
@@ -139,6 +140,8 @@ export default function GuestList() {
     try { const saved = localStorage.getItem('guestListCols'); return saved ? JSON.parse(saved) : DEFAULT_COLS; } catch { return DEFAULT_COLS; }
   });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [sortCol, setSortCol] = useState('name');
+  const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
 
   useEffect(() => { localStorage.setItem('guestListCols', JSON.stringify(activeCols)); }, [activeCols]);
 
@@ -150,11 +153,29 @@ export default function GuestList() {
     `${g.firstName} ${g.lastName} ${g.email || ''} ${g.companions?.map(c => c.fullName).join(' ') || ''}`.toLowerCase().includes(search.toLowerCase())
   );
 
+  const columns = ALL_COLUMNS.filter(c => activeCols.includes(c.key));
+
+  const sorted = useMemo(() => {
+    const col = ALL_COLUMNS.find(c => c.key === sortCol);
+    if (!col?.sortValue) return filtered;
+    return [...filtered].sort((a, b) => {
+      const va = col.sortValue(a);
+      const vb = col.sortValue(b);
+      let cmp = 0;
+      if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb;
+      else cmp = String(va).localeCompare(String(vb));
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [filtered, sortCol, sortDir]);
+
+  const handleSort = (key) => {
+    if (sortCol === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(key); setSortDir('asc'); }
+  };
+
   const totalPeople = guests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
   const totalRooms = guests.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0);
   const withFlights = guests.filter(g => g.flights?.some(f => f.direction === 'ARRIVAL')).length;
-
-  const columns = ALL_COLUMNS.filter(c => activeCols.includes(c.key));
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
@@ -198,10 +219,14 @@ export default function GuestList() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr>{columns.map(col => <th key={col.key}>{col.label}</th>)}</tr>
+                <tr>{columns.map(col => (
+                  <th key={col.key} onClick={() => handleSort(col.key)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+                    {col.label} {sortCol === col.key ? (sortDir === 'asc' ? '▲' : '▼') : <span style={{ opacity: 0.25 }}>▲</span>}
+                  </th>
+                ))}</tr>
               </thead>
               <tbody>
-                {filtered.map(g => (
+                {sorted.map(g => (
                   <tr key={g.id} className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
                     {columns.map(col => (
                       <td key={col.key} style={{ fontWeight: col.bold ? 600 : 400, fontSize: col.small ? 12 : undefined }}>
