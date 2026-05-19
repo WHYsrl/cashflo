@@ -201,13 +201,25 @@ export default function GuestMeetGreet() {
           {/* Guests traveling with main guest (no own flight but matched as companion) */}
           {travelingWith.length > 0 && (
             <div className="card" style={{ marginBottom: 12, borderLeft: '4px solid var(--primary)' }}>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>👥 Viaggiano con ospite principale ({travelingWith.length})</div>
-              <div style={{ fontSize: 13 }}>
-                {travelingWith.map(({ guest: g, mainGuest: m }) => (
-                  <div key={g.id} style={{ padding: '2px 0' }}>
-                    • {g.firstName} {g.lastName} <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>→ volo di {m.firstName} {m.lastName}</span>
-                  </div>
-                ))}
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>👥 Viaggiano con ospite principale ({travelingWith.length})</div>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Ospite</th><th>Viaggia con</th><th>Volo</th><th>Data Arrivo</th><th>Orario</th></tr></thead>
+                  <tbody>
+                    {travelingWith.map(({ guest: g, mainGuest: m }) => {
+                      const mf = m.flights?.find(f => f.direction === 'ARRIVAL');
+                      return (
+                        <tr key={g.id} className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
+                          <td style={{ fontWeight: 600 }}>{g.firstName} {g.lastName}</td>
+                          <td style={{ fontSize: 12 }}>{m.firstName} {m.lastName}</td>
+                          <td style={{ fontSize: 12 }}>{mf ? `${mf.airline || ''} ${mf.flightNumber || ''}`.trim() : '-'}</td>
+                          <td style={{ fontSize: 12 }}>{mf?.arrivalDay ? formatDate(mf.arrivalDay) : mf?.date ? formatDate(mf.date) : '-'}</td>
+                          <td style={{ fontWeight: 600 }}>{mf?.arrivalTime || '-'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
