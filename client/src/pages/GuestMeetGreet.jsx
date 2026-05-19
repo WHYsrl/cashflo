@@ -65,7 +65,7 @@ export default function GuestMeetGreet() {
 
   // ── Report data ──
   const selectedGuests = useMemo(() => guests.filter(g => selected.includes(g.id)), [guests, selected]);
-  const totalPeople = useMemo(() => selectedGuests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0), [selectedGuests]);
+  const totalPeople = useMemo(() => selectedGuests.length, [selectedGuests]);
 
   const arrivalsByDay = useMemo(() => {
     const map = {};
@@ -124,7 +124,6 @@ export default function GuestMeetGreet() {
                 <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
                   {arrFlight ? `${arrFlight.airline || ''} ${arrFlight.flightNumber || ''} — ${arrFlight.arrivalTime || ''}` : 'No flight'}
                 </span>
-                {g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--primary)' }}>+{g.companions.length}</span>}
               </label>
             );
           })}
@@ -147,7 +146,7 @@ export default function GuestMeetGreet() {
             <div key={day} className="card" style={{ marginBottom: 12 }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
                 <span>📅 {day === 'TBD' ? 'Data da confermare' : formatDate(day)}</span>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entries.reduce((s, e) => s + 1 + (e.guest.companions?.length || 0), 0)} persone</span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entries.length} persone</span>
               </div>
               <div className="table-wrap">
                 <table>
@@ -157,7 +156,7 @@ export default function GuestMeetGreet() {
                       <React.Fragment key={g.id}>
                         <tr className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
                           <td style={{ fontWeight: 600 }}>★ {g.firstName} {g.lastName}</td>
-                          <td style={{ textAlign: 'center' }}>{1 + (g.companions?.length || 0)}</td>
+                          <td style={{ textAlign: 'center' }}>1</td>
                           <td style={{ fontSize: 12 }}>{f.airline || '-'}</td>
                           <td style={{ fontSize: 12 }}>{f.flightNumber || '-'}</td>
                           <td style={{ fontWeight: 600 }}>{f.arrivalTime || '-'}</td>
@@ -182,7 +181,7 @@ export default function GuestMeetGreet() {
             <div className="card" style={{ borderLeft: '4px solid var(--warning)' }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>⚠️ Ospiti senza volo di arrivo ({noFlight.length})</div>
               <div style={{ fontSize: 13 }}>
-                {noFlight.map(g => <div key={g.id} style={{ padding: '2px 0' }}>• {g.firstName} {g.lastName}{g.companions?.length ? ` (+${g.companions.length})` : ''}</div>)}
+                {noFlight.map(g => <div key={g.id} style={{ padding: '2px 0' }}>• {g.firstName} {g.lastName}</div>)}
               </div>
             </div>
           )}

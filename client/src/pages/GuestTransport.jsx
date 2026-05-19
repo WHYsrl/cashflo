@@ -65,8 +65,11 @@ export default function GuestTransport() {
   };
 
   const selectedGuests = useMemo(() => guests.filter(g => selected.includes(g.id)), [guests, selected]);
-  const totalPeople = useMemo(() => selectedGuests.length, [selectedGuests]);
-  const withMobility = useMemo(() => selectedGuests.filter(g => g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim())), [selectedGuests]);
+  // Filter out noTransfer guests for transport counts and reports
+  const transportGuests = useMemo(() => selectedGuests.filter(g => !g.noTransfer), [selectedGuests]);
+  const noTransferGuests = useMemo(() => selectedGuests.filter(g => g.noTransfer), [selectedGuests]);
+  const totalPeople = useMemo(() => transportGuests.length, [transportGuests]);
+  const withMobility = useMemo(() => transportGuests.filter(g => g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim())), [transportGuests]);
 
   const showArrivals = direction === 'arrivals' || direction === 'both';
   const showDepartures = direction === 'departures' || direction === 'both';
@@ -75,7 +78,7 @@ export default function GuestTransport() {
   const arrivalsByDay = useMemo(() => {
     if (!showArrivals) return [];
     const map = {};
-    selectedGuests.forEach(g => {
+    transportGuests.forEach(g => {
       const arr = g.flights?.find(f => f.direction === 'ARRIVAL');
       if (!arr) return;
       const day = arr.arrivalDay || arr.date || 'TBD';
@@ -83,12 +86,12 @@ export default function GuestTransport() {
       map[day].push({ guest: g, flight: arr });
     });
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
-  }, [selectedGuests, showArrivals]);
+  }, [transportGuests, showArrivals]);
 
   const arrivalTransferGroups = useMemo(() => {
     if (!showArrivals) return [];
     const timeMap = {};
-    selectedGuests.forEach(g => {
+    transportGuests.forEach(g => {
       const arr = g.flights?.find(f => f.direction === 'ARRIVAL');
       if (!arr?.arrivalTime) return;
       const day = arr.arrivalDay || arr.date || 'TBD';
@@ -98,13 +101,13 @@ export default function GuestTransport() {
       timeMap[key].guests.push({ guest: g, flight: arr });
     });
     return Object.values(timeMap).filter(g => g.guests.length >= 2).sort((a, b) => a.day.localeCompare(b.day));
-  }, [selectedGuests, showArrivals]);
+  }, [transportGuests, showArrivals]);
 
   // ── DEPARTURES ──
   const departuresByDay = useMemo(() => {
     if (!showDepartures) return [];
     const map = {};
-    selectedGuests.forEach(g => {
+    transportGuests.forEach(g => {
       const dep = g.flights?.find(f => f.direction === 'DEPARTURE');
       if (!dep) return;
       const day = dep.date || dep.arrivalDay || 'TBD';
@@ -112,12 +115,12 @@ export default function GuestTransport() {
       map[day].push({ guest: g, flight: dep });
     });
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
-  }, [selectedGuests, showDepartures]);
+  }, [transportGuests, showDepartures]);
 
   const departureTransferGroups = useMemo(() => {
     if (!showDepartures) return [];
     const timeMap = {};
-    selectedGuests.forEach(g => {
+    transportGuests.forEach(g => {
       const dep = g.flights?.find(f => f.direction === 'DEPARTURE');
       if (!dep?.departureTime) return;
       const day = dep.date || dep.arrivalDay || 'TBD';
@@ -127,7 +130,7 @@ export default function GuestTransport() {
       timeMap[key].guests.push({ guest: g, flight: dep });
     });
     return Object.values(timeMap).filter(g => g.guests.length >= 2).sort((a, b) => a.day.localeCompare(b.day));
-  }, [selectedGuests, showDepartures]);
+  }, [transportGuests, showDepartures]);
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
@@ -254,6 +257,7 @@ export default function GuestTransport() {
                   {showArrivals && !showDepartures && !arrFlight && 'No arrival'}
                   {showDepartures && !showArrivals && !depFlight && 'No departure'}
                 </span>
+                {g.noTransfer && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>🚫 No transfer</span>}
                 {g.mobilityNeeds && !['none','n/a','no'].includes((g.mobilityNeeds||'').toLowerCase().trim()) && <span style={{ fontSize: 11, color: 'var(--danger)' }}>♿</span>}
               </label>
             );
@@ -265,8 +269,8 @@ export default function GuestTransport() {
       {view === 'report' && selectedGuests.length > 0 && (
         <div>
           <div className="stats-grid" style={{ marginBottom: 16 }}>
-            <div className="stat-card"><div className="stat-label">Ospiti</div><div className="stat-value">{selectedGuests.length}</div></div>
-            <div className="stat-card"><div className="stat-label">Persone</div><div className="stat-value">{totalPeople}</div></div>
+            <div className="stat-card"><div className="stat-label">Ospiti selezionati</div><div className="stat-value">{selectedGuests.length}</div></div>
+            <div className="stat-card"><div className="stat-label">Da trasferire</div><div className="stat-value">{totalPeople}</div>{noTransferGuests.length > 0 && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>({noTransferGuests.length} senza transfer)</div>}</div>
             {showArrivals && <div className="stat-card"><div className="stat-label">Giorni arrivo</div><div className="stat-value">{arrivalsByDay.length}</div></div>}
             {showDepartures && <div className="stat-card"><div className="stat-label">Giorni ripartenza</div><div className="stat-value">{departuresByDay.length}</div></div>}
             <div className="stat-card"><div className="stat-label">Esigenze mobilità</div><div className="stat-value" style={{ color: withMobility.length > 0 ? 'var(--danger)' : undefined }}>{withMobility.length}</div></div>

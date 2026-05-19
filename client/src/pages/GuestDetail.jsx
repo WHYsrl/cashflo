@@ -21,7 +21,7 @@ export default function GuestDetail() {
 
   const load = useCallback(() => {
     if (isNew) {
-      const blank = { firstName: '', lastName: '', fullName: '', email: '', phone: '', phoneOffice: '', mailingAddress: '', city: '', state: '', zip: '', hotelRoomsNeeded: null, roomType: '', checkInDate: '', checkOutDate: '', hotelUpgrade: '', passportCountry: '', passportNumber: '', passportExpiry: '', dateOfBirth: '', dietaryRestrictions: '', mobilityNeeds: '', medicalInfo: '', healthAttestation: false, assistantName: '', assistantEmail: '', assistantPhone: '', emergencyName: '', emergencyPhone: '', emergencyEmail: '', emergencyRelation: '', bio: '', whatsappOptIn: false, specialRequests: '', notes: '', privacyConsent: false, imageRightsConsent: false, liabilityConsent: false, cancellationConsent: false, insuranceConsent: false, companions: [], flights: [] };
+      const blank = { firstName: '', lastName: '', fullName: '', email: '', phone: '', phoneOffice: '', mailingAddress: '', city: '', state: '', zip: '', hotelRoomsNeeded: null, roomType: '', checkInDate: '', checkOutDate: '', hotelUpgrade: '', noTransfer: false, passportCountry: '', passportNumber: '', passportExpiry: '', dateOfBirth: '', dietaryRestrictions: '', mobilityNeeds: '', medicalInfo: '', healthAttestation: false, assistantName: '', assistantEmail: '', assistantPhone: '', emergencyName: '', emergencyPhone: '', emergencyEmail: '', emergencyRelation: '', bio: '', whatsappOptIn: false, specialRequests: '', notes: '', privacyConsent: false, imageRightsConsent: false, liabilityConsent: false, cancellationConsent: false, insuranceConsent: false, mealAttendance: null, companions: [], flights: [] };
       setGuest(blank);
       setEditForm(blank);
       return;
@@ -88,6 +88,7 @@ export default function GuestDetail() {
     { key: 'passport', label: 'Passaporto', icon: '🛂' },
     { key: 'dietary', label: 'Esigenze & Dieta', icon: '🍽️' },
     { key: 'contacts', label: 'Emergenza & Assistente', icon: '📞' },
+    { key: 'meals', label: 'Pasti', icon: '🗓️' },
     { key: 'bio', label: 'Bio & Note', icon: '📝' },
     { key: 'consent', label: 'Privacy & Consensi', icon: '🔒' },
   ];
@@ -152,7 +153,7 @@ export default function GuestDetail() {
 
             {activeSection === 'hotel' && (
               <>
-                <div className="card-title" style={{ marginBottom: 12 }}>Hotel</div>
+                <div className="card-title" style={{ marginBottom: 12 }}>Hotel & Transfer</div>
                 <div className="form-row-3">
                   <div className="form-group"><label className="form-label">Tipo camera</label><input className="form-input" value={editForm.roomType || ''} onChange={e => set('roomType', e.target.value)} /></div>
                   <div className="form-group"><label className="form-label">N. camere</label><input className="form-input" type="number" value={editForm.hotelRoomsNeeded || ''} onChange={e => set('hotelRoomsNeeded', e.target.value ? parseInt(e.target.value) : null)} /></div>
@@ -161,6 +162,10 @@ export default function GuestDetail() {
                 <div className="form-row-3">
                   <div className="form-group"><label className="form-label">Check-in</label><input className="form-input" type="date" value={editForm.checkInDate ? editForm.checkInDate.substring(0, 10) : ''} onChange={e => set('checkInDate', e.target.value)} /></div>
                   <div className="form-group"><label className="form-label">Check-out</label><input className="form-input" type="date" value={editForm.checkOutDate ? editForm.checkOutDate.substring(0, 10) : ''} onChange={e => set('checkOutDate', e.target.value)} /></div>
+                  <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 24 }}>
+                    <input type="checkbox" checked={editForm.noTransfer || false} onChange={e => set('noTransfer', e.target.checked)} id="noTransfer" />
+                    <label htmlFor="noTransfer" style={{ fontSize: 13 }}>🚫 Non necessita di transfer</label>
+                  </div>
                 </div>
               </>
             )}
@@ -211,6 +216,50 @@ export default function GuestDetail() {
                 </div>
               </>
             )}
+
+            {activeSection === 'meals' && (() => {
+              const MEAL_SLOTS = [
+                { key: '17giu_cena', label: '17 Giugno — Cena' },
+                { key: '18giu_pranzo', label: '18 Giugno — Pranzo' },
+                { key: '18giu_cena', label: '18 Giugno — Cena' },
+                { key: '19giu_pranzo', label: '19 Giugno — Pranzo' },
+                { key: '19giu_cena', label: '19 Giugno — Cena' },
+                { key: '20giu_pranzo', label: '20 Giugno — Pranzo' },
+                { key: '20giu_cena', label: '20 Giugno — Cena' },
+              ];
+              const ma = editForm.mealAttendance || {};
+              const setMeal = (slotKey, val) => {
+                const updated = { ...ma, [slotKey]: val };
+                set('mealAttendance', updated);
+              };
+              const allChecked = MEAL_SLOTS.every(s => ma[s.key] !== false);
+              const toggleAllMeals = () => {
+                const newVal = !allChecked;
+                const updated = {};
+                MEAL_SLOTS.forEach(s => { updated[s.key] = newVal; });
+                set('mealAttendance', updated);
+              };
+              return (
+                <>
+                  <div className="card-title" style={{ marginBottom: 12 }}>Partecipazione Pasti</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                    Deseleziona i pasti a cui l'ospite NON parteciperà. Di default tutti sono selezionati.
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+                    <input type="checkbox" checked={allChecked} onChange={toggleAllMeals} id="mealAll" />
+                    <label htmlFor="mealAll" style={{ fontSize: 13, fontWeight: 600 }}>Tutti i pasti</label>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {MEAL_SLOTS.map(s => (
+                      <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input type="checkbox" checked={ma[s.key] !== false} onChange={e => setMeal(s.key, e.target.checked)} id={`meal_${s.key}`} />
+                        <label htmlFor={`meal_${s.key}`} style={{ fontSize: 13 }}>{s.label}</label>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
 
             {activeSection === 'bio' && (
               <>
@@ -274,8 +323,35 @@ export default function GuestDetail() {
               <Field label="Check-in" value={guest.checkInDate ? formatDate(guest.checkInDate) : null} />
               <Field label="Check-out" value={guest.checkOutDate ? formatDate(guest.checkOutDate) : null} />
               <Field label="Upgrade" value={guest.hotelUpgrade} />
+              {guest.noTransfer && <div><span style={{ color: 'var(--danger)' }}>🚫 Non necessita di transfer</span></div>}
             </div>
           </div>
+
+          {/* Meal attendance read-only */}
+          {guest.mealAttendance && (() => {
+            const MEAL_SLOTS = [
+              { key: '17giu_cena', label: '17/06 Cena' },
+              { key: '18giu_pranzo', label: '18/06 Pranzo' },
+              { key: '18giu_cena', label: '18/06 Cena' },
+              { key: '19giu_pranzo', label: '19/06 Pranzo' },
+              { key: '19giu_cena', label: '19/06 Cena' },
+              { key: '20giu_pranzo', label: '20/06 Pranzo' },
+              { key: '20giu_cena', label: '20/06 Cena' },
+            ];
+            const ma = guest.mealAttendance;
+            const skipped = MEAL_SLOTS.filter(s => ma[s.key] === false);
+            if (skipped.length === 0) return null;
+            return (
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-title" style={{ marginBottom: 8 }}>🗓️ Pasti — Assenze</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {skipped.map(s => (
+                    <span key={s.key} className="badge" style={{ background: '#fef2f2', color: 'var(--danger)' }}>✗ {s.label}</span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Passport */}
           {(guest.passportCountry || guest.passportNumber) && (

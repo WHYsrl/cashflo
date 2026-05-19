@@ -156,10 +156,12 @@ router.get('/export', async (req, res) => {
 router.get('/export-transport', async (req, res) => {
   try {
     const XLSX = (await import('xlsx')).default;
-    const guests = await prisma.guest.findMany({
+    const allGuests = await prisma.guest.findMany({
       include: { companions: true, flights: true },
       orderBy: { lastName: 'asc' }
     });
+    // Exclude guests that don't need transfer
+    const guests = allGuests.filter(g => !g.noTransfer);
 
     // ── Build rows ──
     const arrivalRows = [];
@@ -1050,13 +1052,7 @@ router.post('/email/meet-greet', async (req, res) => {
       const sorted = byDate[date].sort((a, b) => (a.flight?.arrivalTime || 'ZZ').localeCompare(b.flight?.arrivalTime || 'ZZ'));
 
       for (const { guest, flight } of sorted) {
-        const pax = 1 + (guest.companions?.length || 0);
-        t += `★ ${guest.firstName} ${guest.lastName} (${pax} pax)\n`;
-        if (guest.companions?.length) {
-          for (const c of guest.companions) {
-            t += `   👤 ${c.fullName}\n`;
-          }
-        }
+        t += `★ ${guest.firstName} ${guest.lastName}\n`;
 
         if (flight) {
           t += `   ✈️ ${flight.airline || '?'} ${flight.flightNumber || 'N/A'}`;
@@ -1072,26 +1068,20 @@ router.post('/email/meet-greet', async (req, res) => {
     // Summary table — all participants
     t += `═══════════════════════════════════\n📋 ${it ? 'LISTA COMPLETA PARTECIPANTI' : 'FULL PARTICIPANT LIST'}\n═══════════════════════════════════\n\n`;
     const h = { d: (it?'Data':'Date').padEnd(12), n: (it?'Partecipante':'Participant').padEnd(28), r: (it?'Ruolo':'Role').padEnd(14), f: (it?'Volo':'Flight').padEnd(14), a: (it?'Arrivo':'Arrival') };
-    t += `${h.d} ${h.n} ${h.r} ${h.f} ${h.a}\n`;
-    t += `${'─'.repeat(12)} ${'─'.repeat(28)} ${'─'.repeat(14)} ${'─'.repeat(14)} ${'─'.repeat(8)}\n`;
+    const th2 = { d: (it?'Data':'Date').padEnd(12), n: (it?'Ospite':'Guest').padEnd(28), f: (it?'Volo':'Flight').padEnd(14), a: (it?'Arrivo':'Arrival') };
+    t += `${th2.d} ${th2.n} ${th2.f} ${th2.a}\n`;
+    t += `${'─'.repeat(12)} ${'─'.repeat(28)} ${'─'.repeat(14)} ${'─'.repeat(8)}\n`;
     for (const date of sortedDates) {
       const dl = date === 'TBD' ? 'TBD' : date;
       for (const { guest, flight } of byDate[date]) {
-        const mainLabel = it ? '★ Ospite' : '★ Guest';
-        t += `${dl.padEnd(12)} ${`${guest.firstName} ${guest.lastName}`.substring(0,27).padEnd(28)} ${mainLabel.padEnd(14)} ${(flight ? `${flight.airline||''} ${flight.flightNumber||''}`.trim() : 'TBD').substring(0,13).padEnd(14)} ${flight?.arrivalTime || '-'}\n`;
-        if (guest.companions?.length) {
-          const compLabel = it ? 'Accompagnatore' : 'Companion';
-          for (const c of guest.companions) {
-            t += `${'↑'.padEnd(12)} ${(c.fullName || '').substring(0,27).padEnd(28)} ${compLabel.substring(0,13).padEnd(14)} ${'↑'.padEnd(14)} ${'↑'}\n`;
-          }
-        }
+        t += `${dl.padEnd(12)} ${`${guest.firstName} ${guest.lastName}`.substring(0,27).padEnd(28)} ${(flight ? `${flight.airline||''} ${flight.flightNumber||''}`.trim() : 'TBD').substring(0,13).padEnd(14)} ${flight?.arrivalTime || '-'}\n`;
       }
     }
 
     t += `\n───────────────────────────────────\n`;
     t += it
-      ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\n\nGrazie,\nCordiali saluti`
-      : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\n\nThank you,\nBest regards`;
+      ? `Totale ospiti: ${totalPeople}\n\nGrazie,\nCordiali saluti`
+      : `Total guests: ${totalPeople}\n\nThank you,\nBest regards`;
 
     if (it) t = await translateEmailToItalian(t);
     res.json({ email: t, guestCount: guests.length });
@@ -1111,11 +1101,13 @@ router.post('/email/transportation', async (req, res) => {
     const it = lang === 'it';
     const dir = direction || 'both'; // 'arrivals', 'departures', 'both'
 
-    const guests = await prisma.guest.findMany({
+    const allGuests = await prisma.guest.findMany({
       where: guestIds?.length ? { id: { in: guestIds } } : {},
       include: { companions: true, flights: true },
       orderBy: [{ lastName: 'asc' }]
     });
+    // Exclude guests that don't need transfer
+    const guests = allGuests.filter(g => !g.noTransfer);
 
     const totalPeople = guests.length;
     const showArrivals = dir === 'arrivals' || dir === 'both';
@@ -1257,11 +1249,45 @@ router.post('/email/restaurant', async (req, res) => {
 
     const totalPeople = guests.length;
 
-    let t = it
-      ? `Gentili,\n\ndi seguito il riepilogo delle esigenze alimentari per i nostri ${totalPeople} partecipanti (${guests.length} ospiti principali + accompagnatori).\n\n`
-      : `Dear Team,\n\nPlease find below the dietary requirements summary for our ${totalPeople} participants (${guests.length} primary guests + companions).\n\n`;
+    const MEAL_SLOTS = [
+      { key: '17giu_cena', label: '17/06 Cena' },
+      { key: '18giu_pranzo', label: '18/06 Pranzo' },
+      { key: '18giu_cena', label: '18/06 Cena' },
+      { key: '19giu_pranzo', label: '19/06 Pranzo' },
+      { key: '19giu_cena', label: '19/06 Cena' },
+      { key: '20giu_pranzo', label: '20/06 Pranzo' },
+      { key: '20giu_cena', label: '20/06 Cena' },
+    ];
 
-    // Section: guests with dietary restrictions (detail view)
+    let t = it
+      ? `Gentili,\n\ndi seguito il riepilogo delle esigenze alimentari e presenze pasti per i nostri ${totalPeople} ospiti.\n\n`
+      : `Dear Team,\n\nPlease find below the dietary requirements and meal attendance summary for our ${totalPeople} guests.\n\n`;
+
+    // Section: Meal attendance per slot
+    t += `═══════════════════════════════════\n`;
+    t += `🗓️ ${it ? 'PRESENZE PER PASTO' : 'MEAL ATTENDANCE'}\n`;
+    t += `═══════════════════════════════════\n\n`;
+
+    const mealHdr = (it ? 'Pasto' : 'Meal').padEnd(16);
+    const presHdr = (it ? 'Presenti' : 'Attending').padEnd(10);
+    const absHdr = (it ? 'Assenti' : 'Absent').padEnd(10);
+    const dietHdr = it ? 'Con restrizioni' : 'With restrictions';
+    t += `${mealHdr} ${presHdr} ${absHdr} ${dietHdr}\n`;
+    t += `${'─'.repeat(16)} ${'─'.repeat(10)} ${'─'.repeat(10)} ${'─'.repeat(18)}\n`;
+
+    for (const slot of MEAL_SLOTS) {
+      const attending = guests.filter(g => {
+        const ma = g.mealAttendance;
+        if (!ma) return true;
+        return ma[slot.key] !== false;
+      });
+      const absent = totalPeople - attending.length;
+      const withDietMeal = attending.filter(g => g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim()));
+      t += `${slot.label.padEnd(16)} ${String(attending.length).padEnd(10)} ${String(absent).padEnd(10)} ${withDietMeal.length}\n`;
+    }
+    t += `\n`;
+
+    // Section: guests with dietary restrictions
     const withDiet = guests.filter(g => g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim()));
 
     if (withDiet.length > 0) {
@@ -1270,51 +1296,31 @@ router.post('/email/restaurant', async (req, res) => {
       t += `═══════════════════════════════════\n\n`;
 
       for (const g of withDiet) {
-        t += `👤 ${g.firstName} ${g.lastName} ★\n`;
-        t += `   ${g.dietaryRestrictions}\n`;
-        if (g.companions?.length) {
-          for (const c of g.companions) {
-            t += `   👤 ${c.fullName}\n`;
-          }
-        }
-        t += `\n`;
+        t += `👤 ${g.firstName} ${g.lastName}\n`;
+        t += `   ${g.dietaryRestrictions}\n\n`;
       }
     }
 
-    // Full participant list — every person on their own line
+    // Full participant list
     t += `═══════════════════════════════════\n`;
-    t += `📋 ${it ? 'LISTA COMPLETA PARTECIPANTI' : 'FULL PARTICIPANT LIST'}\n`;
+    t += `📋 ${it ? 'LISTA COMPLETA OSPITI' : 'FULL GUEST LIST'}\n`;
     t += `═══════════════════════════════════\n\n`;
 
-    const nameCol = it ? 'Partecipante' : 'Participant';
-    const roleCol = it ? 'Ruolo' : 'Role';
+    const nameCol = it ? 'Ospite' : 'Guest';
     const dietCol = it ? 'Restrizioni' : 'Restrictions';
-    t += `${nameCol.padEnd(30)} ${roleCol.padEnd(16)} ${dietCol}\n`;
-    t += `${'─'.repeat(30)} ${'─'.repeat(16)} ${'─'.repeat(30)}\n`;
+    t += `${nameCol.padEnd(30)} ${dietCol}\n`;
+    t += `${'─'.repeat(30)} ${'─'.repeat(30)}\n`;
 
-    let countWithDiet = 0;
-    let countNoDiet = 0;
     for (const g of guests) {
       const diet = g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim())
         ? g.dietaryRestrictions.substring(0, 29) : (it ? 'Nessuna' : 'None');
-      const hasDiet = diet !== 'Nessuna' && diet !== 'None';
-      if (hasDiet) countWithDiet++; else countNoDiet++;
-      const mainLabel = it ? '★ Ospite' : '★ Guest';
-      t += `${`${g.firstName} ${g.lastName}`.substring(0,29).padEnd(30)} ${mainLabel.padEnd(16)} ${diet}\n`;
-
-      if (g.companions?.length) {
-        const compLabel = it ? 'Accompagnatore' : 'Companion';
-        for (const c of g.companions) {
-          countNoDiet++; // companions inherit main guest diet or unknown
-          t += `${(c.fullName || '').substring(0,29).padEnd(30)} ${compLabel.padEnd(16)} ${hasDiet ? diet : (it ? '—' : '—')}\n`;
-        }
-      }
+      t += `${`${g.firstName} ${g.lastName}`.substring(0,29).padEnd(30)} ${diet}\n`;
     }
 
     t += `\n───────────────────────────────────\n`;
     t += it
-      ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\nCon restrizioni: ${withDiet.length} | Senza restrizioni: ${guests.length - withDiet.length}\n\nGrazie,\nCordiali saluti`
-      : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\nWith restrictions: ${withDiet.length} | No restrictions: ${guests.length - withDiet.length}\n\nThank you,\nBest regards`;
+      ? `Totale ospiti: ${totalPeople}\nCon restrizioni: ${withDiet.length} | Senza restrizioni: ${totalPeople - withDiet.length}\n\nGrazie,\nCordiali saluti`
+      : `Total guests: ${totalPeople}\nWith restrictions: ${withDiet.length} | No restrictions: ${totalPeople - withDiet.length}\n\nThank you,\nBest regards`;
 
     if (it) t = await translateEmailToItalian(t);
     res.json({ email: t, guestCount: guests.length });
@@ -1358,7 +1364,7 @@ router.post('/email/hotel', async (req, res) => {
     for (const date of sortedDates) {
       const dateLabel = date === 'TBD' ? (it ? 'Data da confermare' : 'Date TBD') : formatDateEmail(date);
       const dayRooms = byCheckin[date].reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0);
-      const dayPeople = byCheckin[date].reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
+      const dayPeople = byCheckin[date].length;
       t += `═══════════════════════════════════\n📅 Check-in: ${dateLabel} — ${dayRooms} ${it ? 'camere' : 'rooms'}, ${dayPeople} ${it ? 'persone' : 'people'}\n═══════════════════════════════════\n\n`;
 
       for (const g of byCheckin[date]) {
@@ -1366,13 +1372,6 @@ router.post('/email/hotel', async (req, res) => {
 
         // Main guest line (starred)
         t += `★ ${g.firstName} ${g.lastName} — ${it ? 'ospite principale' : 'primary guest'}\n`;
-
-        // List each companion by name
-        if (g.companions?.length) {
-          for (const c of g.companions) {
-            t += `   👤 ${c.fullName}${c.relationship ? ` (${c.relationship})` : ''}\n`;
-          }
-        }
 
         if (g.roomType) t += `   🏨 ${it ? 'Camera' : 'Room'}: ${g.roomType}\n`;
         if (g.hotelRoomsNeeded) t += `   🔑 ${it ? 'N. camere' : 'N. rooms'}: ${g.hotelRoomsNeeded}\n`;
@@ -1417,11 +1416,6 @@ router.post('/email/hotel', async (req, res) => {
 
       t += `★ ${`${g.firstName} ${g.lastName}`.substring(0,23).padEnd(24)} ${room.padEnd(18)} ${ci.padEnd(12)} ${co.padEnd(12)} ${noteStr}\n`;
 
-      if (g.companions?.length) {
-        for (const c of g.companions) {
-          t += `  ${(c.fullName || '').substring(0,23).padEnd(24)} ${'↑'.padEnd(18)} ${'↑'.padEnd(12)} ${'↑'.padEnd(12)} ${'↑'}\n`;
-        }
-      }
     }
 
     // Highlight guests with special needs
@@ -1443,8 +1437,8 @@ router.post('/email/hotel', async (req, res) => {
 
     t += `\n───────────────────────────────────\n`;
     t += it
-      ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\nCamere totali: ${totalRooms}\n\nGrazie,\nCordiali saluti`
-      : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\nTotal rooms: ${totalRooms}\n\nThank you,\nBest regards`;
+      ? `Totale ospiti: ${totalPeople}\nCamere totali: ${totalRooms}\n\nGrazie,\nCordiali saluti`
+      : `Total guests: ${totalPeople}\nTotal rooms: ${totalRooms}\n\nThank you,\nBest regards`;
 
     if (it) t = await translateEmailToItalian(t);
     res.json({ email: t, guestCount: guests.length });
@@ -1583,7 +1577,7 @@ router.post('/flight-check', async (req, res) => {
         const arr = g.flights.find(f => f.direction === 'ARRIVAL');
         return {
           guest: `${g.firstName} ${g.lastName}`,
-          pax: 1 + (g.companions?.length || 0),
+          pax: 1,
           airline: arr.airline,
           flightNumber: arr.flightNumber,
           date: arr.arrivalDay || arr.date,

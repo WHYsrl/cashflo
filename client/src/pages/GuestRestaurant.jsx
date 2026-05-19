@@ -39,9 +39,32 @@ export default function GuestRestaurant() {
   };
 
   const selectedGuests = useMemo(() => guests.filter(g => selected.includes(g.id)), [guests, selected]);
-  const totalPeople = useMemo(() => selectedGuests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0), [selectedGuests]);
+  const totalPeople = useMemo(() => selectedGuests.length, [selectedGuests]);
   const withDiet = useMemo(() => selectedGuests.filter(g => g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim())), [selectedGuests]);
   const noDiet = useMemo(() => selectedGuests.filter(g => !g.dietaryRestrictions || ['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim())), [selectedGuests]);
+
+  const MEAL_SLOTS = [
+    { key: '17giu_cena', label: '17/06 Cena' },
+    { key: '18giu_pranzo', label: '18/06 Pranzo' },
+    { key: '18giu_cena', label: '18/06 Cena' },
+    { key: '19giu_pranzo', label: '19/06 Pranzo' },
+    { key: '19giu_cena', label: '19/06 Cena' },
+    { key: '20giu_pranzo', label: '20/06 Pranzo' },
+    { key: '20giu_cena', label: '20/06 Cena' },
+  ];
+
+  const mealCounts = useMemo(() => {
+    return MEAL_SLOTS.map(slot => {
+      const attending = selectedGuests.filter(g => {
+        const ma = g.mealAttendance;
+        if (!ma) return true; // null = all meals
+        return ma[slot.key] !== false;
+      });
+      const absent = selectedGuests.length - attending.length;
+      const withDietMeal = attending.filter(g => g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim()));
+      return { ...slot, attending: attending.length, absent, withDiet: withDietMeal.length };
+    });
+  }, [selectedGuests]);
 
   // Group by dietary type
   const dietByType = useMemo(() => {
@@ -101,7 +124,6 @@ export default function GuestRestaurant() {
                 <span style={{ color: hasDiet ? 'var(--warning)' : 'var(--text-secondary)', fontSize: 12 }}>
                   {hasDiet ? g.dietaryRestrictions.substring(0, 50) : 'Nessuna restrizione'}
                 </span>
-                {g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--primary)' }}>+{g.companions.length}</span>}
               </label>
             );
           })}
@@ -124,11 +146,10 @@ export default function GuestRestaurant() {
               {dietByType.map(([type, gs]) => (
                 <div key={type} className="card" style={{ borderLeft: '4px solid var(--warning)' }}>
                   <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{type}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{gs.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0)} persone</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{gs.length} persone</div>
                   {gs.map(g => (
                     <div key={g.id} style={{ fontSize: 13, padding: '2px 0' }}>
                       <span style={{ cursor: 'pointer', color: 'var(--primary)' }} onClick={() => navigate(`/guests/${g.id}`)}>★ {g.firstName} {g.lastName}</span>
-                      {g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}> +{g.companions.map(c => c.fullName).join(', ')}</span>}
                     </div>
                   ))}
                 </div>
@@ -136,32 +157,47 @@ export default function GuestRestaurant() {
             </div>
           )}
 
+          {/* Meal attendance per day */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-header"><div className="card-title">🗓️ Presenze per pasto</div></div>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Pasto</th><th>Presenti</th><th>Assenti</th><th>Con restrizioni</th></tr></thead>
+                <tbody>
+                  {mealCounts.map(m => (
+                    <tr key={m.key}>
+                      <td style={{ fontWeight: 600 }}>{m.label}</td>
+                      <td style={{ color: 'var(--success)', fontWeight: 600 }}>{m.attending}</td>
+                      <td style={{ color: m.absent > 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>{m.absent}</td>
+                      <td style={{ color: m.withDiet > 0 ? 'var(--warning)' : 'var(--text-secondary)' }}>{m.withDiet}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           {/* Full participant table */}
           <div className="card">
             <div className="card-header"><div className="card-title">Lista completa partecipanti</div></div>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Partecipante</th><th>Ruolo</th><th>Restrizioni / Allergie</th></tr></thead>
+                <thead><tr><th>Ospite</th><th>Restrizioni / Allergie</th><th>Pasti assenti</th></tr></thead>
                 <tbody>
                   {selectedGuests.map(g => {
                     const hasDiet = g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim());
+                    const ma = g.mealAttendance;
+                    const skippedMeals = ma ? MEAL_SLOTS.filter(s => ma[s.key] === false).map(s => s.label) : [];
                     return (
-                      <React.Fragment key={g.id}>
-                        <tr className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
-                          <td style={{ fontWeight: 600 }}>★ {g.firstName} {g.lastName}</td>
-                          <td style={{ fontSize: 12 }}>Ospite principale</td>
-                          <td style={{ color: hasDiet ? 'var(--warning)' : 'var(--text-secondary)', fontWeight: hasDiet ? 500 : 400 }}>
-                            {hasDiet ? g.dietaryRestrictions : 'Nessuna'}
-                          </td>
-                        </tr>
-                        {g.companions?.map((c, i) => (
-                          <tr key={`${g.id}-c${i}`} style={{ background: '#f8fafc' }}>
-                            <td style={{ paddingLeft: 24, fontSize: 12, color: 'var(--text-secondary)' }}>👤 {c.fullName}</td>
-                            <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Accompagnatore</td>
-                            <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{hasDiet ? '↑' : '—'}</td>
-                          </tr>
-                        ))}
-                      </React.Fragment>
+                      <tr key={g.id} className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
+                        <td style={{ fontWeight: 600 }}>{g.firstName} {g.lastName}</td>
+                        <td style={{ color: hasDiet ? 'var(--warning)' : 'var(--text-secondary)', fontWeight: hasDiet ? 500 : 400 }}>
+                          {hasDiet ? g.dietaryRestrictions : 'Nessuna'}
+                        </td>
+                        <td style={{ fontSize: 12, color: skippedMeals.length > 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                          {skippedMeals.length > 0 ? skippedMeals.join(', ') : 'Tutti'}
+                        </td>
+                      </tr>
                     );
                   })}
                 </tbody>

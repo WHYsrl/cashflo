@@ -176,7 +176,7 @@ export default function GuestInsights() {
   /* ── Computed data ── */
   const stats = useMemo(() => {
     if (!guests.length) return null;
-    const totalPeople = guests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
+    const totalPeople = guests.length;
     const totalRooms = guests.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0);
     const withArrival = guests.filter(g => g.flights?.some(f => f.direction === 'ARRIVAL'));
     const withDeparture = guests.filter(g => g.flights?.some(f => f.direction === 'DEPARTURE'));
@@ -219,7 +219,7 @@ export default function GuestInsights() {
   /* ── Dietary restrictions ── */
   const dietaryList = useMemo(() => {
     return guests.filter(g => g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim()))
-      .map(g => ({ id: g.id, name: `${g.firstName} ${g.lastName}`, diet: g.dietaryRestrictions, companions: g.companions }));
+      .map(g => ({ id: g.id, name: `${g.firstName} ${g.lastName}`, diet: g.dietaryRestrictions }));
   }, [guests]);
 
   /* ── Alerts ── */
@@ -358,14 +358,13 @@ export default function GuestInsights() {
           arrivalsByDay.map(([day, entries]) => (
             <div key={day} style={{ marginBottom: 16 }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, padding: '4px 8px', background: '#f1f5f9', borderRadius: 4 }}>
-                📅 {formatDate(day)} — {entries.reduce((s, e) => s + 1 + (e.guest.companions?.length || 0), 0)} {t.people}
+                📅 {formatDate(day)} — {entries.length} {t.people}
               </div>
               <MiniTable
-                columns={[t.guest, t.pax, t.flight, t.arrivalTime, t.from]}
+                columns={[t.guest, t.flight, t.arrivalTime, t.from]}
                 rows={entries.sort((a, b) => (a.flight.arrivalTime || '').localeCompare(b.flight.arrivalTime || '')).map(({ guest: g, flight: f }) => ({
                   cells: [
-                    { value: <><span style={{ fontWeight: 500 }}>★ {g.firstName} {g.lastName}</span>{g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}><br/>{g.companions.map(c => `  👤 ${c.fullName}`).join(', ')}</span>}</>, style: {} },
-                    { value: 1 + (g.companions?.length || 0), style: { textAlign: 'center' } },
+                    { value: <span style={{ fontWeight: 500 }}>★ {g.firstName} {g.lastName}</span>, style: {} },
                     { value: `${f.airline || ''} ${f.flightNumber || ''}`.trim() || '-', style: { fontSize: 12 } },
                     { value: f.arrivalTime || '-', style: { fontWeight: 600 } },
                     { value: f.departureAirport || '-', style: { fontSize: 12 } }
@@ -390,19 +389,13 @@ export default function GuestInsights() {
                     <div style={{ display: 'flex', gap: 12 }}>
                       <span style={{ fontWeight: 500, minWidth: 150 }}>★ {g.firstName} {g.lastName}</span>
                       <span style={{ color: 'var(--text-secondary)' }}>{f.airline} {f.flightNumber} — {f.arrivalTime}</span>
-                      <span style={{ color: 'var(--text-secondary)' }}>({1 + (g.companions?.length || 0)} pax)</span>
                       {g.roomType && <span style={{ color: 'var(--text-secondary)' }}>→ {g.roomType}</span>}
                     </div>
-                    {g.companions?.length > 0 && (
-                      <div style={{ paddingLeft: 20, fontSize: 12, color: 'var(--text-secondary)' }}>
-                        {g.companions.map((c, k) => <span key={k}>👤 {c.fullName}{k < g.companions.length - 1 ? ', ' : ''}</span>)}
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
               <div style={{ fontSize: 12, color: 'var(--success)', fontWeight: 600, marginTop: 4 }}>
-                {t.total}: {group.guests.reduce((s, { guest: g }) => s + 1 + (g.companions?.length || 0), 0)} {t.people}
+                {t.total}: {group.guests.length} {t.people}
               </div>
             </div>
           ))}
@@ -415,14 +408,13 @@ export default function GuestInsights() {
           checkinByDay.map(([day, gs]) => (
             <div key={day} style={{ marginBottom: 16 }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, padding: '4px 8px', background: '#f1f5f9', borderRadius: 4 }}>
-                📅 Check-in {formatDate(day)} — {gs.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0)} {t.rooms.toLowerCase()}, {gs.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0)} {t.people}
+                📅 Check-in {formatDate(day)} — {gs.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0)} {t.rooms.toLowerCase()}, {gs.length} {t.people}
               </div>
               <MiniTable
-                columns={[t.guest, t.pax, t.roomType, t.nRooms, t.checkout, t.requests]}
+                columns={[t.guest, t.roomType, t.nRooms, t.checkout, t.requests]}
                 rows={gs.map(g => ({
                   cells: [
-                    { value: <><span style={{ fontWeight: 500 }}>★ {g.firstName} {g.lastName}</span>{g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}><br/>{g.companions.map(c => `  👤 ${c.fullName}`).join(', ')}</span>}</> },
-                    { value: 1 + (g.companions?.length || 0), style: { textAlign: 'center' } },
+                    { value: <span style={{ fontWeight: 500 }}>★ {g.firstName} {g.lastName}</span> },
                     { value: g.roomType || '-', style: { fontSize: 12 } },
                     { value: g.hotelRoomsNeeded || '-', style: { textAlign: 'center' } },
                     { value: g.checkOutDate ? formatDate(g.checkOutDate) : '-', style: { fontSize: 12 } },
@@ -440,23 +432,12 @@ export default function GuestInsights() {
         {dietaryList.length === 0 ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t.noDiet}</div> : (
           <MiniTable
             columns={[t.guest, t.dietCol]}
-            rows={dietaryList.flatMap(d => {
-              const rows = [
-                { cells: [
-                  { value: <span style={{ fontWeight: 500, cursor: 'pointer', color: 'var(--primary)' }} onClick={() => navigate(`/guests/${d.id}`)}>★ {d.name}</span> },
-                  { value: d.diet, style: { fontSize: 13 } }
-                ] }
-              ];
-              if (d.companions?.length) {
-                d.companions.forEach(c => {
-                  rows.push({ cells: [
-                    { value: <span style={{ paddingLeft: 16, fontSize: 12, color: 'var(--text-secondary)' }}>👤 {c.fullName}</span> },
-                    { value: <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>↑</span> }
-                  ] });
-                });
-              }
-              return rows;
-            })}
+            rows={dietaryList.map(d => ({
+              cells: [
+                { value: <span style={{ fontWeight: 500, cursor: 'pointer', color: 'var(--primary)' }} onClick={() => navigate(`/guests/${d.id}`)}>★ {d.name}</span> },
+                { value: d.diet, style: { fontSize: 13 } }
+              ]
+            }))}
           />
         )}
       </Section>

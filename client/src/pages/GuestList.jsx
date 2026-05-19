@@ -24,7 +24,7 @@ const ALL_COLUMNS = [
   { key: 'zip', label: 'CAP', group: 'Anagrafica', default: false, render: g => g.zip || '-', sortValue: g => g.zip || '' },
   // Companions
   { key: 'companions', label: 'Accompagnatori', group: 'Anagrafica', default: true, render: g => g.companions?.map(c => c.fullName).join(', ') || '-', sortValue: g => g.companions?.length || 0, small: true },
-  { key: 'pax', label: 'Persone', group: 'Anagrafica', default: true, render: g => 1 + (g.companions?.length || 0), sortValue: g => 1 + (g.companions?.length || 0) },
+  { key: 'pax', label: 'Persone', group: 'Anagrafica', default: true, render: () => 1, sortValue: () => 1 },
   // Flight
   { key: 'arrivalFlight', label: 'Volo Arrivo', group: 'Voli', default: true, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.airline || ''} ${f.flightNumber || ''}`.trim() || '-' : '-'; }, sortValue: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.airline || ''} ${f.flightNumber || ''}` : ''; }, small: true },
   { key: 'arrivalDate', label: 'Arrivo', group: 'Voli', default: true, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.arrivalDay ? formatDate(f.arrivalDay) : f.date ? formatDate(f.date) : '-'}${f.arrivalTime ? ` ${f.arrivalTime}` : ''}` : '-'; }, sortValue: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.arrivalDay || f.date || ''}${f.arrivalTime || ''}` : ''; }, small: true },
@@ -199,7 +199,7 @@ export default function GuestList() {
     else { setSortCol(key); setSortDir('asc'); }
   };
 
-  const totalPeople = guests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
+  const totalPeople = guests.length;
   const totalRooms = guests.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0);
   const withFlights = guests.filter(g => g.flights?.some(f => f.direction === 'ARRIVAL')).length;
 

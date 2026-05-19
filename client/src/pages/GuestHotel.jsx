@@ -40,7 +40,7 @@ export default function GuestHotel() {
   };
 
   const selectedGuests = useMemo(() => guests.filter(g => selected.includes(g.id)), [guests, selected]);
-  const totalPeople = useMemo(() => selectedGuests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0), [selectedGuests]);
+  const totalPeople = useMemo(() => selectedGuests.length, [selectedGuests]);
   const totalRooms = useMemo(() => selectedGuests.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0), [selectedGuests]);
   const withSpecialNeeds = useMemo(() => selectedGuests.filter(g =>
     (g.specialRequests) ||
@@ -69,7 +69,7 @@ export default function GuestHotel() {
     selectedGuests.forEach(g => {
       const rt = g.roomType || 'Non assegnata';
       if (!map[rt]) map[rt] = { count: 0, rooms: 0, guests: [] };
-      map[rt].count += 1 + (g.companions?.length || 0);
+      map[rt].count += 1;
       map[rt].rooms += (g.hotelRoomsNeeded || 1);
       map[rt].guests.push(g);
     });
@@ -116,7 +116,6 @@ export default function GuestHotel() {
                 <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
                   {g.roomType || 'No room'} {g.hotelRoomsNeeded ? `(${g.hotelRoomsNeeded})` : ''}
                 </span>
-                {g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--primary)' }}>+{g.companions.length}</span>}
                 {hasNeeds && <span style={{ fontSize: 11, color: 'var(--warning)' }}>⚠️</span>}
               </label>
             );
@@ -176,7 +175,7 @@ export default function GuestHotel() {
             <div key={day} className="card" style={{ marginBottom: 12 }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
                 <span>📅 Check-in {formatDate(day)}</span>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{gs.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0)} camere, {gs.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0)} persone</span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{gs.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0)} camere, {gs.length} persone</span>
               </div>
               <div className="table-wrap">
                 <table>
@@ -188,7 +187,7 @@ export default function GuestHotel() {
                         <React.Fragment key={g.id}>
                           <tr className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
                             <td style={{ fontWeight: 600 }}>★ {g.firstName} {g.lastName}</td>
-                            <td style={{ textAlign: 'center' }}>{1 + (g.companions?.length || 0)}</td>
+                            <td style={{ textAlign: 'center' }}>1</td>
                             <td style={{ fontSize: 12 }}>{g.roomType || '-'}</td>
                             <td style={{ textAlign: 'center' }}>{g.hotelRoomsNeeded || '-'}</td>
                             <td style={{ fontSize: 12 }}>{g.checkOutDate ? formatDate(g.checkOutDate) : '-'}</td>
@@ -221,7 +220,7 @@ export default function GuestHotel() {
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>⚠️ Ospiti senza data check-in ({noCheckin.length})</div>
               <div style={{ fontSize: 13 }}>
                 {noCheckin.map(g => (
-                  <div key={g.id} style={{ padding: '2px 0' }}>• {g.firstName} {g.lastName} — {g.roomType || 'Nessuna camera'}{g.companions?.length ? ` (+${g.companions.length})` : ''}</div>
+                  <div key={g.id} style={{ padding: '2px 0' }}>• {g.firstName} {g.lastName} — {g.roomType || 'Nessuna camera'}</div>
                 ))}
               </div>
             </div>

@@ -157,6 +157,13 @@ model Guest {
   emergencyEmail      String?
   emergencyRelation   String?
 
+  // Transport
+  noTransfer          Boolean   @default(false)
+
+  // Meal attendance: JSON object with keys like "17giu_cena", "18giu_pranzo", "18giu_cena", etc.
+  // Values are booleans. Null = all meals attended (default assumption)
+  mealAttendance      Json?
+
   // Bio & misc
   bio                 String?
   whatsappOptIn       Boolean   @default(false)
