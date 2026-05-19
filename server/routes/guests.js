@@ -168,12 +168,9 @@ router.get('/export-transport', async (req, res) => {
     const noDeparture = [];
 
     for (const g of guests) {
-      const pax = 1 + (g.companions?.length || 0);
       const mobility = g.mobilityNeeds && !['none','n/a','no'].includes((g.mobilityNeeds||'').toLowerCase().trim()) ? g.mobilityNeeds : '';
       const baseRow = {
-        'Ospite Principale': `${g.firstName} ${g.lastName}`,
-        'Accompagnatori': g.companions?.map(c => c.fullName).join(', ') || '',
-        'N. Persone': pax,
+        'Ospite': `${g.firstName} ${g.lastName}`,
         'Esigenze Mobilità': mobility,
         'Note': g.specialRequests || '',
       };
@@ -185,10 +182,10 @@ router.get('/export-transport', async (req, res) => {
           'Data': day, 'Orario': arr.arrivalTime || '',
           'N. Volo': arr.flightNumber ? `${arr.airline || ''} ${arr.flightNumber}`.trim() : '',
           'Tratta': `${arr.departureAirport || '?'} → ${arr.arrivalAirport || '?'}`,
-          ...baseRow, 'Destinazione Hotel': g.roomType || '',
+          ...baseRow, 'Hotel': g.roomType || '',
         });
       } else {
-        noArrival.push({ ...baseRow, 'Destinazione Hotel': g.roomType || '', _missing: 'arrival' });
+        noArrival.push({ ...baseRow, 'Hotel': g.roomType || '', _missing: 'arrival' });
       }
 
       const dep = g.flights?.find(f => f.direction === 'DEPARTURE');
@@ -198,10 +195,10 @@ router.get('/export-transport', async (req, res) => {
           'Data': day, 'Orario': dep.departureTime || '',
           'N. Volo': dep.flightNumber ? `${dep.airline || ''} ${dep.flightNumber}`.trim() : '',
           'Tratta': `${dep.departureAirport || '?'} → ${dep.arrivalAirport || '?'}`,
-          ...baseRow, 'Partenza da Hotel': g.roomType || '',
+          ...baseRow, 'Hotel': g.roomType || '',
         });
       } else {
-        noDeparture.push({ ...baseRow, 'Partenza da Hotel': g.roomType || '', _missing: 'departure' });
+        noDeparture.push({ ...baseRow, 'Hotel': g.roomType || '', _missing: 'departure' });
       }
     }
 
@@ -220,9 +217,7 @@ router.get('/export-transport', async (req, res) => {
         row['Orario'] = '';
         row['N. Volo'] = '';
         row['Tratta'] = '';
-        row['Ospite Principale'] = m['Ospite Principale'];
-        row['Accompagnatori'] = m['Accompagnatori'];
-        row['N. Persone'] = m['N. Persone'];
+        row['Ospite'] = m['Ospite'];
         row[hotelCol] = m[hotelCol];
         row['Esigenze Mobilità'] = m['Esigenze Mobilità'];
         row['Note'] = m['Note'];
@@ -261,12 +256,12 @@ router.get('/export-transport', async (req, res) => {
     for (const r of arrivalRows) {
       const key = `${r['Data']}_${r['Orario'] || 'TBD'}`;
       if (!arrSummary[key]) arrSummary[key] = { data: r['Data'], orario: r['Orario'] || 'TBD', persone: 0, voli: new Set() };
-      arrSummary[key].persone += r['N. Persone'];
+      arrSummary[key].persone += 1;
       if (r['N. Volo']) arrSummary[key].voli.add(r['N. Volo']);
     }
     // Add missing to summary
     if (noArrival.length > 0) {
-      const missPax = noArrival.reduce((s, r) => s + r['N. Persone'], 0);
+      const missPax = noArrival.length;
       const sumRows = Object.values(arrSummary).sort((a, b) => a.data.localeCompare(b.data) || a.orario.localeCompare(b.orario)).map(s => ({
         'Data': s.data, 'Fascia Oraria': s.orario, 'N. Persone': s.persone, 'Voli': [...s.voli].join(', '),
       }));
@@ -286,7 +281,7 @@ router.get('/export-transport', async (req, res) => {
     }
 
     // Detail
-    const wsArr = buildDetailSheet(arrivalRows, noArrival, 'Destinazione Hotel');
+    const wsArr = buildDetailSheet(arrivalRows, noArrival, 'Hotel');
     if (wsArr) XLSX.utils.book_append_sheet(wb, wsArr, 'Arrivi Dettaglio');
 
     // ── Departures ──
@@ -294,11 +289,11 @@ router.get('/export-transport', async (req, res) => {
     for (const r of departureRows) {
       const key = `${r['Data']}_${r['Orario'] || 'TBD'}`;
       if (!depSummary[key]) depSummary[key] = { data: r['Data'], orario: r['Orario'] || 'TBD', persone: 0, voli: new Set() };
-      depSummary[key].persone += r['N. Persone'];
+      depSummary[key].persone += 1;
       if (r['N. Volo']) depSummary[key].voli.add(r['N. Volo']);
     }
     if (noDeparture.length > 0) {
-      const missPax = noDeparture.reduce((s, r) => s + r['N. Persone'], 0);
+      const missPax = noDeparture.length;
       const sumRows = Object.values(depSummary).sort((a, b) => a.data.localeCompare(b.data) || a.orario.localeCompare(b.orario)).map(s => ({
         'Data': s.data, 'Fascia Oraria': s.orario, 'N. Persone': s.persone, 'Voli': [...s.voli].join(', '),
       }));
@@ -317,7 +312,7 @@ router.get('/export-transport', async (req, res) => {
       }
     }
 
-    const wsDep = buildDetailSheet(departureRows, noDeparture, 'Partenza da Hotel');
+    const wsDep = buildDetailSheet(departureRows, noDeparture, 'Hotel');
     if (wsDep) XLSX.utils.book_append_sheet(wb, wsDep, 'Ripartenze Dettaglio');
 
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
@@ -1042,7 +1037,7 @@ router.post('/email/meet-greet', async (req, res) => {
 
     const byDate = groupByArrivalDate(guests);
     const sortedDates = Object.keys(byDate).sort();
-    const totalPeople = guests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
+    const totalPeople = guests.length;
 
     let t = it
       ? 'Gentili,\n\ndi seguito i dettagli degli arrivi per il servizio di Meet & Greet.\n\n'
@@ -1122,7 +1117,7 @@ router.post('/email/transportation', async (req, res) => {
       orderBy: [{ lastName: 'asc' }]
     });
 
-    const totalPeople = guests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
+    const totalPeople = guests.length;
     const showArrivals = dir === 'arrivals' || dir === 'both';
     const showDepartures = dir === 'departures' || dir === 'both';
 
@@ -1166,13 +1161,7 @@ router.post('/email/transportation', async (req, res) => {
         for (const { guest, flight } of sorted) {
           if (seenDetail.has(guest.id)) continue;
           seenDetail.add(guest.id);
-          const pax = 1 + (guest.companions?.length || 0);
-          section += `★ ${guest.firstName} ${guest.lastName} (${pax} pax)\n`;
-          if (guest.companions?.length) {
-            for (const c of guest.companions) {
-              section += `   👤 ${c.fullName}\n`;
-            }
-          }
+          section += `★ ${guest.firstName} ${guest.lastName}\n`;
 
           if (flight) {
             section += `   ✈️ ${flight.airline || '?'} ${flight.flightNumber || 'N/A'}`;
@@ -1203,20 +1192,19 @@ router.post('/email/transportation', async (req, res) => {
       section += `═══════════════════════════════════\n\n`;
 
       const thTime = isArrival ? (it ? 'Orario' : 'Time') : (it ? 'Orario' : 'Time');
-      const thLoc = isArrival ? (it ? 'Destinazione' : 'Destination') : (it ? 'Partenza da' : 'Pick-up');
-      const th = { d: (it?'Data':'Date').padEnd(12), n: (it?'Ospite':'Guest').padEnd(25), p: 'Pax'.padEnd(5), f: (it?'Volo':'Flight').padEnd(14), h: thTime.padEnd(8), dest: thLoc };
-      section += `${th.d} ${th.n} ${th.p} ${th.f} ${th.h} ${th.dest}\n`;
-      section += `${'─'.repeat(12)} ${'─'.repeat(25)} ${'─'.repeat(5)} ${'─'.repeat(14)} ${'─'.repeat(8)} ${'─'.repeat(16)}\n`;
+      const thLoc = isArrival ? (it ? 'Hotel' : 'Hotel') : (it ? 'Hotel' : 'Hotel');
+      const th = { d: (it?'Data':'Date').padEnd(12), n: (it?'Ospite':'Guest').padEnd(28), f: (it?'Volo':'Flight').padEnd(14), h: thTime.padEnd(8), dest: thLoc };
+      section += `${th.d} ${th.n} ${th.f} ${th.h} ${th.dest}\n`;
+      section += `${'─'.repeat(12)} ${'─'.repeat(28)} ${'─'.repeat(14)} ${'─'.repeat(8)} ${'─'.repeat(16)}\n`;
       const seen = new Set();
       for (const date of sortedDates) {
         const dl = date === 'TBD' ? 'TBD' : date;
         for (const { guest, flight } of byDate[date]) {
           if (seen.has(guest.id)) continue;
           seen.add(guest.id);
-          const pax = 1 + (guest.companions?.length || 0);
           const dest = (guest.roomType || '-').substring(0, 15);
           const time = isArrival ? (flight?.arrivalTime || '-') : (flight?.departureTime || '-');
-          section += `${dl.padEnd(12)} ${`${guest.firstName} ${guest.lastName}`.substring(0,24).padEnd(25)} ${String(pax).padEnd(5)} ${(flight ? `${flight.airline||''} ${flight.flightNumber||''}`.trim() : 'TBD').substring(0,13).padEnd(14)} ${time.padEnd(8)} ${dest}\n`;
+          section += `${dl.padEnd(12)} ${`${guest.firstName} ${guest.lastName}`.substring(0,27).padEnd(28)} ${(flight ? `${flight.airline||''} ${flight.flightNumber||''}`.trim() : 'TBD').substring(0,13).padEnd(14)} ${time.padEnd(8)} ${dest}\n`;
         }
       }
 
@@ -1237,8 +1225,8 @@ router.post('/email/transportation', async (req, res) => {
     const arrDays = showArrivals ? Object.keys(groupByArrivalDate(guests)).length : 0;
     const depDays = showDepartures ? Object.keys(groupByDepartureDate(guests)).length : 0;
     let summary = it
-      ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}`
-      : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}`;
+      ? `Totale ospiti: ${totalPeople}`
+      : `Total guests: ${totalPeople}`;
     if (showArrivals) summary += `\n${it ? 'Giorni arrivo' : 'Arrival days'}: ${arrDays}`;
     if (showDepartures) summary += `\n${it ? 'Giorni ripartenza' : 'Departure days'}: ${depDays}`;
     summary += it ? '\n\nGrazie,\nCordiali saluti' : '\n\nThank you,\nBest regards';
@@ -1267,7 +1255,7 @@ router.post('/email/restaurant', async (req, res) => {
       orderBy: [{ lastName: 'asc' }]
     });
 
-    const totalPeople = guests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
+    const totalPeople = guests.length;
 
     let t = it
       ? `Gentili,\n\ndi seguito il riepilogo delle esigenze alimentari per i nostri ${totalPeople} partecipanti (${guests.length} ospiti principali + accompagnatori).\n\n`
@@ -1351,7 +1339,7 @@ router.post('/email/hotel', async (req, res) => {
       orderBy: [{ lastName: 'asc' }]
     });
 
-    const totalPeople = guests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
+    const totalPeople = guests.length;
     const totalRooms = guests.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0);
 
     let t = it

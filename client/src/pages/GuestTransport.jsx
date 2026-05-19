@@ -65,7 +65,7 @@ export default function GuestTransport() {
   };
 
   const selectedGuests = useMemo(() => guests.filter(g => selected.includes(g.id)), [guests, selected]);
-  const totalPeople = useMemo(() => selectedGuests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0), [selectedGuests]);
+  const totalPeople = useMemo(() => selectedGuests.length, [selectedGuests]);
   const withMobility = useMemo(() => selectedGuests.filter(g => g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim())), [selectedGuests]);
 
   const showArrivals = direction === 'arrivals' || direction === 'both';
@@ -144,10 +144,10 @@ export default function GuestTransport() {
       <table>
         <thead>
           <tr>
-            <th>Partecipante</th><th>Pax</th><th>Volo</th>
+            <th>Ospite</th><th>Volo</th>
             <th>{isArrival ? 'Arrivo' : 'Partenza'}</th>
             <th>Tratta</th>
-            <th>{isArrival ? 'Destinazione' : 'Partenza da'}</th>
+            <th>Hotel</th>
             <th>Note</th>
           </tr>
         </thead>
@@ -157,25 +157,16 @@ export default function GuestTransport() {
             const timeB = isArrival ? (b.flight?.arrivalTime || '') : (b.flight?.departureTime || '');
             return timeA.localeCompare(timeB);
           }).map(({ guest: g, flight: f }) => (
-            <React.Fragment key={g.id}>
-              <tr className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
-                <td style={{ fontWeight: 600 }}>★ {g.firstName} {g.lastName}</td>
-                <td style={{ textAlign: 'center' }}>{1 + (g.companions?.length || 0)}</td>
-                <td style={{ fontSize: 12 }}>{f?.airline} {f?.flightNumber || '-'}</td>
-                <td style={{ fontWeight: 600 }}>{isArrival ? (f?.arrivalTime || '-') : (f?.departureTime || '-')}</td>
-                <td style={{ fontSize: 12 }}>{f?.departureAirport || '?'} → {f?.arrivalAirport || '?'}</td>
-                <td style={{ fontSize: 12 }}>{g.roomType || '-'}</td>
-                <td style={{ fontSize: 11 }}>
-                  {g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim()) && <span style={{ color: 'var(--danger)' }}>♿ {g.mobilityNeeds}</span>}
-                </td>
-              </tr>
-              {g.companions?.map((c, i) => (
-                <tr key={`${g.id}-c${i}`} style={{ background: '#f8fafc' }}>
-                  <td style={{ paddingLeft: 24, fontSize: 12, color: 'var(--text-secondary)' }}>👤 {c.fullName}</td>
-                  <td colSpan={6} style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{c.relationship || 'Accompagnatore'}</td>
-                </tr>
-              ))}
-            </React.Fragment>
+            <tr key={g.id} className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
+              <td style={{ fontWeight: 600 }}>{g.firstName} {g.lastName}</td>
+              <td style={{ fontSize: 12 }}>{f?.airline} {f?.flightNumber || '-'}</td>
+              <td style={{ fontWeight: 600 }}>{isArrival ? (f?.arrivalTime || '-') : (f?.departureTime || '-')}</td>
+              <td style={{ fontSize: 12 }}>{f?.departureAirport || '?'} → {f?.arrivalAirport || '?'}</td>
+              <td style={{ fontSize: 12 }}>{g.roomType || '-'}</td>
+              <td style={{ fontSize: 11 }}>
+                {g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim()) && <span style={{ color: 'var(--danger)' }}>♿ {g.mobilityNeeds}</span>}
+              </td>
+            </tr>
           ))}
         </tbody>
       </table>
@@ -193,7 +184,7 @@ export default function GuestTransport() {
         {groups.map((group, i) => (
           <div key={i} style={{ marginBottom: 8, padding: 8, background: isArrival ? '#f0fdf4' : '#eef2ff', borderRadius: 4 }}>
             <div style={{ fontWeight: 500, fontSize: 13 }}>
-              📅 {formatDate(group.day)} — fascia {group.hour} ({group.guests.reduce((s, { guest: g }) => s + 1 + (g.companions?.length || 0), 0)} persone)
+              📅 {formatDate(group.day)} — fascia {group.hour} ({group.guests.length} persone)
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', paddingLeft: 8, marginTop: 4 }}>
               {group.guests.map(({ guest: g, flight: f }) => {
@@ -263,7 +254,6 @@ export default function GuestTransport() {
                   {showArrivals && !showDepartures && !arrFlight && 'No arrival'}
                   {showDepartures && !showArrivals && !depFlight && 'No departure'}
                 </span>
-                {g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--primary)' }}>+{g.companions.length}</span>}
                 {g.mobilityNeeds && !['none','n/a','no'].includes((g.mobilityNeeds||'').toLowerCase().trim()) && <span style={{ fontSize: 11, color: 'var(--danger)' }}>♿</span>}
               </label>
             );
@@ -309,7 +299,7 @@ export default function GuestTransport() {
                 <div key={`arr-${day}`} className="card" style={{ marginBottom: 12 }}>
                   <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
                     <span>📅 {day === 'TBD' ? 'Data da confermare' : formatDate(day)}</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entries.reduce((s, e) => s + 1 + (e.guest.companions?.length || 0), 0)} persone</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entries.length} persone</span>
                   </div>
                   {renderTransportTable(entries, true)}
                 </div>
@@ -338,7 +328,7 @@ export default function GuestTransport() {
                 <div key={`dep-${day}`} className="card" style={{ marginBottom: 12 }}>
                   <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
                     <span>📅 {day === 'TBD' ? 'Data da confermare' : formatDate(day)}</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entries.reduce((s, e) => s + 1 + (e.guest.companions?.length || 0), 0)} persone</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entries.length} persone</span>
                   </div>
                   {renderTransportTable(entries, false)}
                 </div>
