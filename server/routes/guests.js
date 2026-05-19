@@ -693,12 +693,6 @@ COME CLASSIFICARE I DATI:
 - Codici tipo "LH402", "UA123", "AZ610" → flightNumber
 - "FCO", "JFK", "EWR", "TLV" → codici aeroporto
 
-FORMATO OUTPUT OBBLIGATORIO:
-- Rispondi SOLO con l'array JSON. NESSUN testo prima, dopo, o intorno.
-- NESSUN commento, NESSUNA spiegazione, NESSUN markdown (no \`\`\`).
-- La tua risposta DEVE iniziare con [ e finire con ]
-- Usa valori COMPATTI: evita spazi inutili nei campi stringa
-
 Schema per ogni ospite:
 {
   "firstName": "string",
@@ -755,12 +749,18 @@ Schema per ogni ospite:
 
 ALTRE REGOLE:
 - Date americane (MM/DD/YYYY) → converti a YYYY-MM-DD
+- Date Excel seriali (es. "2026-06-15 00:00:00") → usa solo la parte data YYYY-MM-DD
 - NON inventare dati: se un campo non è nel testo, usa null
 - Array vuoto [] se non trovi nessun ospite
 - Ogni ospite DEVE avere firstName e lastName (almeno uno dei due non vuoto)
+- Ometti i campi null per risparmiare spazio (includi solo campi con valore)
 
 DATI DA ANALIZZARE:
-${rawText.substring(0, 50000)}`;
+${rawText.substring(0, 50000)}
+
+IMPORTANTE — FORMATO RISPOSTA:
+Rispondi UNICAMENTE con il JSON array. Niente testo, niente spiegazioni, niente markdown.
+Il primo carattere della tua risposta deve essere [ e l'ultimo deve essere ]`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
@@ -770,23 +770,25 @@ ${rawText.substring(0, 50000)}`;
 
   let responseText = response.content[0]?.text || '[]';
 
-  // Clean up: remove markdown code blocks if present
-  responseText = responseText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+  // Strip any text before the JSON array starts
+  const arrayStart = responseText.indexOf('[');
+  if (arrayStart === -1) {
+    console.error('AI response has no JSON array:', responseText.substring(0, 200));
+    return [];
+  }
+  let jsonStr = responseText.substring(arrayStart);
 
-  // Extract the JSON array
-  let jsonStr = responseText;
-  const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-  if (jsonMatch) jsonStr = jsonMatch[0];
+  // Remove markdown code blocks if present
+  jsonStr = jsonStr.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
 
-  // If JSON was truncated (stop_reason = max_tokens), try to recover
-  if (response.stop_reason === 'max_tokens' || response.stop_reason === 'end_turn') {
-    // Try to close truncated JSON by finding the last complete object
-    try { JSON.parse(jsonStr); } catch (e) {
-      // Find last complete object (ends with })
-      const lastBrace = jsonStr.lastIndexOf('}');
-      if (lastBrace > 0) {
-        jsonStr = jsonStr.substring(0, lastBrace + 1) + ']';
-      }
+  // Try to parse, if it fails try truncation recovery
+  try {
+    JSON.parse(jsonStr);
+  } catch (e) {
+    // JSON truncated or malformed — find the last complete object and close the array
+    const lastBrace = jsonStr.lastIndexOf('}');
+    if (lastBrace > 0) {
+      jsonStr = jsonStr.substring(0, lastBrace + 1) + ']';
     }
   }
 
