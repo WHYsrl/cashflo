@@ -5,26 +5,46 @@ import { formatDate } from '../utils/format.js';
 
 export default function GuestDetail() {
   const { id } = useParams();
+  const isNew = id === 'new';
   const navigate = useNavigate();
   const token = sessionStorage.getItem('guestToken');
   const [guest, setGuest] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(!isNew);
+  const [editing, setEditing] = useState(isNew);
   const [editForm, setEditForm] = useState({});
   const [flightModal, setFlightModal] = useState(null);
   const [compModal, setCompModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [activeSection, setActiveSection] = useState('personal');
 
   useEffect(() => { if (!token) navigate('/guests/login'); }, [token]);
 
   const load = useCallback(() => {
+    if (isNew) {
+      const blank = { firstName: '', lastName: '', fullName: '', email: '', phone: '', phoneOffice: '', mailingAddress: '', city: '', state: '', zip: '', hotelRoomsNeeded: null, roomType: '', checkInDate: '', checkOutDate: '', hotelUpgrade: '', passportCountry: '', passportNumber: '', passportExpiry: '', dateOfBirth: '', dietaryRestrictions: '', mobilityNeeds: '', medicalInfo: '', healthAttestation: false, assistantName: '', assistantEmail: '', assistantPhone: '', emergencyName: '', emergencyPhone: '', emergencyEmail: '', emergencyRelation: '', bio: '', whatsappOptIn: false, specialRequests: '', notes: '', privacyConsent: false, imageRightsConsent: false, liabilityConsent: false, cancellationConsent: false, insuranceConsent: false, companions: [], flights: [] };
+      setGuest(blank);
+      setEditForm(blank);
+      return;
+    }
     if (token) api.getGuest(id, token).then(g => { setGuest(g); setEditForm(g); }).catch(() => navigate('/guests/login')).finally(() => setLoading(false));
-  }, [id, token]);
+  }, [id, token, isNew]);
   useEffect(() => { load(); }, [load]);
 
-  const handleSaveEdit = async () => {
-    await api.updateGuest(id, editForm, token);
-    setEditing(false);
-    load();
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (isNew) {
+        const result = await api.createGuest({ ...editForm, fullName: `${editForm.firstName} ${editForm.lastName}`.trim() }, token);
+        navigate(`/guests/${result.id}`, { replace: true });
+      } else {
+        await api.updateGuest(id, editForm, token);
+        setEditing(false);
+        load();
+      }
+    } catch (e) {
+      alert('Errore: ' + e.message);
+    }
+    setSaving(false);
   };
 
   const handleDelete = async () => {
@@ -61,8 +81,16 @@ export default function GuestDetail() {
   if (!guest) return <div className="empty">Ospite non trovato</div>;
 
   const set = (k, v) => setEditForm(f => ({ ...f, [k]: v }));
-  const arrFlight = guest.flights?.find(f => f.direction === 'ARRIVAL');
-  const depFlight = guest.flights?.find(f => f.direction === 'DEPARTURE');
+
+  const sections = [
+    { key: 'personal', label: 'Dati Personali', icon: '👤' },
+    { key: 'hotel', label: 'Hotel', icon: '🏨' },
+    { key: 'passport', label: 'Passaporto', icon: '🛂' },
+    { key: 'dietary', label: 'Esigenze & Dieta', icon: '🍽️' },
+    { key: 'contacts', label: 'Emergenza & Assistente', icon: '📞' },
+    { key: 'bio', label: 'Bio & Note', icon: '📝' },
+    { key: 'consent', label: 'Privacy & Consensi', icon: '🔒' },
+  ];
 
   return (
     <div>
@@ -70,79 +98,216 @@ export default function GuestDetail() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 24 }}>
         <div>
-          <h1 className="page-title" style={{ margin: 0 }}>{guest.firstName} {guest.lastName}</h1>
-          {guest.companions?.length > 0 && <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>+ {guest.companions.map(c => c.fullName).join(', ')}</div>}
+          <h1 className="page-title" style={{ margin: 0 }}>{isNew ? 'Nuovo Ospite' : `${guest.firstName} ${guest.lastName}`}</h1>
+          {!isNew && guest.companions?.length > 0 && <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>+ {guest.companions.map(c => c.fullName).join(', ')}</div>}
         </div>
-        <div className="btn-group">
-          <button className="btn btn-sm" onClick={() => setEditing(!editing)}>{editing ? 'Annulla' : '✏️ Modifica'}</button>
-          <button className="btn btn-sm btn-danger" onClick={handleDelete}>🗑 Elimina</button>
-        </div>
+        {!isNew && (
+          <div className="btn-group">
+            <button className="btn btn-sm" onClick={() => { setEditing(!editing); if (editing) setEditForm(guest); }}>{editing ? 'Annulla' : '✏️ Modifica'}</button>
+            <button className="btn btn-sm btn-danger" onClick={handleDelete}>🗑 Elimina</button>
+          </div>
+        )}
       </div>
 
       {editing ? (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="card-title" style={{ marginBottom: 12 }}>Dati Personali</div>
-          <div className="form-row-3">
-            <div className="form-group"><label className="form-label">Nome</label><input className="form-input" value={editForm.firstName || ''} onChange={e => set('firstName', e.target.value)} /></div>
-            <div className="form-group"><label className="form-label">Cognome</label><input className="form-input" value={editForm.lastName || ''} onChange={e => set('lastName', e.target.value)} /></div>
-            <div className="form-group"><label className="form-label">Email</label><input className="form-input" value={editForm.email || ''} onChange={e => set('email', e.target.value)} /></div>
+        <div>
+          {/* Section tabs */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+            {sections.map(s => (
+              <button key={s.key} className={`btn btn-sm${activeSection === s.key ? ' btn-primary' : ''}`}
+                onClick={() => setActiveSection(s.key)} style={{ fontSize: 12 }}>
+                {s.icon} {s.label}
+              </button>
+            ))}
           </div>
-          <div className="form-row-3">
-            <div className="form-group"><label className="form-label">Cellulare</label><input className="form-input" value={editForm.phone || ''} onChange={e => set('phone', e.target.value)} /></div>
-            <div className="form-group"><label className="form-label">Tel. ufficio</label><input className="form-input" value={editForm.phoneOffice || ''} onChange={e => set('phoneOffice', e.target.value)} /></div>
-            <div className="form-group"><label className="form-label">Città</label><input className="form-input" value={editForm.city || ''} onChange={e => set('city', e.target.value)} /></div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
+            {activeSection === 'personal' && (
+              <>
+                <div className="card-title" style={{ marginBottom: 12 }}>Dati Personali</div>
+                <div className="form-row-3">
+                  <div className="form-group"><label className="form-label">Nome *</label><input className="form-input" value={editForm.firstName || ''} onChange={e => set('firstName', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Cognome *</label><input className="form-input" value={editForm.lastName || ''} onChange={e => set('lastName', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Email</label><input className="form-input" type="email" value={editForm.email || ''} onChange={e => set('email', e.target.value)} /></div>
+                </div>
+                <div className="form-row-3">
+                  <div className="form-group"><label className="form-label">Cellulare</label><input className="form-input" value={editForm.phone || ''} onChange={e => set('phone', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Tel. ufficio</label><input className="form-input" value={editForm.phoneOffice || ''} onChange={e => set('phoneOffice', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Data di nascita</label><input className="form-input" value={editForm.dateOfBirth || ''} onChange={e => set('dateOfBirth', e.target.value)} placeholder="dd/mm/yyyy" /></div>
+                </div>
+                <div className="form-row-3">
+                  <div className="form-group"><label className="form-label">Indirizzo</label><input className="form-input" value={editForm.mailingAddress || ''} onChange={e => set('mailingAddress', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Città</label><input className="form-input" value={editForm.city || ''} onChange={e => set('city', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Stato</label><input className="form-input" value={editForm.state || ''} onChange={e => set('state', e.target.value)} /></div>
+                </div>
+                <div className="form-row-3">
+                  <div className="form-group"><label className="form-label">CAP</label><input className="form-input" value={editForm.zip || ''} onChange={e => set('zip', e.target.value)} /></div>
+                  <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 24 }}>
+                    <input type="checkbox" checked={editForm.whatsappOptIn || false} onChange={e => set('whatsappOptIn', e.target.checked)} id="whatsapp" />
+                    <label htmlFor="whatsapp" style={{ fontSize: 13 }}>WhatsApp Opt-in</label>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {activeSection === 'hotel' && (
+              <>
+                <div className="card-title" style={{ marginBottom: 12 }}>Hotel</div>
+                <div className="form-row-3">
+                  <div className="form-group"><label className="form-label">Tipo camera</label><input className="form-input" value={editForm.roomType || ''} onChange={e => set('roomType', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">N. camere</label><input className="form-input" type="number" value={editForm.hotelRoomsNeeded || ''} onChange={e => set('hotelRoomsNeeded', e.target.value ? parseInt(e.target.value) : null)} /></div>
+                  <div className="form-group"><label className="form-label">Upgrade</label><input className="form-input" value={editForm.hotelUpgrade || ''} onChange={e => set('hotelUpgrade', e.target.value)} /></div>
+                </div>
+                <div className="form-row-3">
+                  <div className="form-group"><label className="form-label">Check-in</label><input className="form-input" type="date" value={editForm.checkInDate ? editForm.checkInDate.substring(0, 10) : ''} onChange={e => set('checkInDate', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Check-out</label><input className="form-input" type="date" value={editForm.checkOutDate ? editForm.checkOutDate.substring(0, 10) : ''} onChange={e => set('checkOutDate', e.target.value)} /></div>
+                </div>
+              </>
+            )}
+
+            {activeSection === 'passport' && (
+              <>
+                <div className="card-title" style={{ marginBottom: 12 }}>Passaporto</div>
+                <div className="form-row-3">
+                  <div className="form-group"><label className="form-label">Paese emissione</label><input className="form-input" value={editForm.passportCountry || ''} onChange={e => set('passportCountry', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Numero passaporto</label><input className="form-input" value={editForm.passportNumber || ''} onChange={e => set('passportNumber', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Scadenza</label><input className="form-input" value={editForm.passportExpiry || ''} onChange={e => set('passportExpiry', e.target.value)} placeholder="dd/mm/yyyy" /></div>
+                </div>
+                <div className="form-row-3">
+                  <div className="form-group"><label className="form-label">Data di nascita</label><input className="form-input" value={editForm.dateOfBirth || ''} onChange={e => set('dateOfBirth', e.target.value)} placeholder="dd/mm/yyyy" /></div>
+                </div>
+              </>
+            )}
+
+            {activeSection === 'dietary' && (
+              <>
+                <div className="card-title" style={{ marginBottom: 12 }}>Esigenze Alimentari & Mediche</div>
+                <div className="form-group"><label className="form-label">Restrizioni alimentari</label><input className="form-input" value={editForm.dietaryRestrictions || ''} onChange={e => set('dietaryRestrictions', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">Esigenze mobilità</label><input className="form-input" value={editForm.mobilityNeeds || ''} onChange={e => set('mobilityNeeds', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">Info mediche</label><textarea className="form-textarea" value={editForm.medicalInfo || ''} onChange={e => set('medicalInfo', e.target.value)} /></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <input type="checkbox" checked={editForm.healthAttestation || false} onChange={e => set('healthAttestation', e.target.checked)} id="health" />
+                  <label htmlFor="health" style={{ fontSize: 13 }}>Health & Physical Self-Attestation</label>
+                </div>
+              </>
+            )}
+
+            {activeSection === 'contacts' && (
+              <>
+                <div className="card-title" style={{ marginBottom: 12 }}>Contatto Emergenza</div>
+                <div className="form-row-3">
+                  <div className="form-group"><label className="form-label">Nome</label><input className="form-input" value={editForm.emergencyName || ''} onChange={e => set('emergencyName', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Telefono</label><input className="form-input" value={editForm.emergencyPhone || ''} onChange={e => set('emergencyPhone', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Email</label><input className="form-input" value={editForm.emergencyEmail || ''} onChange={e => set('emergencyEmail', e.target.value)} /></div>
+                </div>
+                <div className="form-row-3">
+                  <div className="form-group"><label className="form-label">Relazione</label><input className="form-input" value={editForm.emergencyRelation || ''} onChange={e => set('emergencyRelation', e.target.value)} /></div>
+                </div>
+                <div className="card-title" style={{ marginTop: 20, marginBottom: 12 }}>Assistente</div>
+                <div className="form-row-3">
+                  <div className="form-group"><label className="form-label">Nome</label><input className="form-input" value={editForm.assistantName || ''} onChange={e => set('assistantName', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Email</label><input className="form-input" value={editForm.assistantEmail || ''} onChange={e => set('assistantEmail', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Telefono</label><input className="form-input" value={editForm.assistantPhone || ''} onChange={e => set('assistantPhone', e.target.value)} /></div>
+                </div>
+              </>
+            )}
+
+            {activeSection === 'bio' && (
+              <>
+                <div className="card-title" style={{ marginBottom: 12 }}>Bio & Note</div>
+                <div className="form-group"><label className="form-label">Bio</label><textarea className="form-textarea" rows={3} value={editForm.bio || ''} onChange={e => set('bio', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">Richieste speciali</label><textarea className="form-textarea" rows={3} value={editForm.specialRequests || ''} onChange={e => set('specialRequests', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">Note</label><textarea className="form-textarea" rows={3} value={editForm.notes || ''} onChange={e => set('notes', e.target.value)} /></div>
+              </>
+            )}
+
+            {activeSection === 'consent' && (
+              <>
+                <div className="card-title" style={{ marginBottom: 12 }}>Privacy & Consensi</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[
+                    ['privacyConsent', 'Privacy - Trattamento dati personali'],
+                    ['imageRightsConsent', 'Image Rights - Diritti immagine'],
+                    ['cancellationConsent', 'Cancellation Policy - Politica di cancellazione'],
+                    ['liabilityConsent', 'Assumption of Risk & Liability'],
+                    ['insuranceConsent', 'Travel & Medical Insurance'],
+                  ].map(([key, label]) => (
+                    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input type="checkbox" checked={editForm[key] || false} onChange={e => set(key, e.target.checked)} id={key} />
+                      <label htmlFor={key} style={{ fontSize: 13 }}>{label}</label>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+              <button className="btn btn-primary" onClick={handleSave} disabled={saving || !editForm.firstName || !editForm.lastName}>
+                {saving ? '⏳ Salvataggio...' : isNew ? '✅ Crea Ospite' : '💾 Salva Modifiche'}
+              </button>
+              {!isNew && <button className="btn" onClick={() => { setEditing(false); setEditForm(guest); }}>Annulla</button>}
+            </div>
           </div>
-          <div className="card-title" style={{ marginTop: 16, marginBottom: 8 }}>Hotel</div>
-          <div className="form-row-3">
-            <div className="form-group"><label className="form-label">Tipo camera</label><input className="form-input" value={editForm.roomType || ''} onChange={e => set('roomType', e.target.value)} /></div>
-            <div className="form-group"><label className="form-label">Check-in</label><input className="form-input" type="date" value={editForm.checkInDate ? editForm.checkInDate.substring(0, 10) : ''} onChange={e => set('checkInDate', e.target.value)} /></div>
-            <div className="form-group"><label className="form-label">Check-out</label><input className="form-input" type="date" value={editForm.checkOutDate ? editForm.checkOutDate.substring(0, 10) : ''} onChange={e => set('checkOutDate', e.target.value)} /></div>
-          </div>
-          <div className="card-title" style={{ marginTop: 16, marginBottom: 8 }}>Esigenze</div>
-          <div className="form-group"><label className="form-label">Restrizioni alimentari</label><input className="form-input" value={editForm.dietaryRestrictions || ''} onChange={e => set('dietaryRestrictions', e.target.value)} /></div>
-          <div className="form-group"><label className="form-label">Esigenze mobilità</label><input className="form-input" value={editForm.mobilityNeeds || ''} onChange={e => set('mobilityNeeds', e.target.value)} /></div>
-          <div className="form-group"><label className="form-label">Info mediche</label><textarea className="form-textarea" value={editForm.medicalInfo || ''} onChange={e => set('medicalInfo', e.target.value)} /></div>
-          <div className="card-title" style={{ marginTop: 16, marginBottom: 8 }}>Contatti emergenza</div>
-          <div className="form-row-3">
-            <div className="form-group"><label className="form-label">Nome</label><input className="form-input" value={editForm.emergencyName || ''} onChange={e => set('emergencyName', e.target.value)} /></div>
-            <div className="form-group"><label className="form-label">Telefono</label><input className="form-input" value={editForm.emergencyPhone || ''} onChange={e => set('emergencyPhone', e.target.value)} /></div>
-            <div className="form-group"><label className="form-label">Relazione</label><input className="form-input" value={editForm.emergencyRelation || ''} onChange={e => set('emergencyRelation', e.target.value)} /></div>
-          </div>
-          <div className="card-title" style={{ marginTop: 16, marginBottom: 8 }}>Bio & Note</div>
-          <div className="form-group"><label className="form-label">Bio</label><textarea className="form-textarea" value={editForm.bio || ''} onChange={e => set('bio', e.target.value)} /></div>
-          <div className="form-group"><label className="form-label">Richieste speciali</label><textarea className="form-textarea" value={editForm.specialRequests || ''} onChange={e => set('specialRequests', e.target.value)} /></div>
-          <div className="form-group"><label className="form-label">Note</label><textarea className="form-textarea" value={editForm.notes || ''} onChange={e => set('notes', e.target.value)} /></div>
-          <button className="btn btn-primary" onClick={handleSaveEdit}>Salva Modifiche</button>
         </div>
       ) : (
         <>
+          {/* READ-ONLY VIEW */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, fontSize: 14 }}>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Email:</span> <strong>{guest.email || '-'}</strong></div>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Cellulare:</span> <strong>{guest.phone || '-'}</strong></div>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Tel. ufficio:</span> <strong>{guest.phoneOffice || '-'}</strong></div>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Città:</span> <strong>{[guest.city, guest.state].filter(Boolean).join(', ') || '-'}</strong></div>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Camera:</span> <strong>{guest.roomType || '-'}</strong></div>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Check-in:</span> <strong>{guest.checkInDate ? formatDate(guest.checkInDate) : '-'}</strong></div>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Check-out:</span> <strong>{guest.checkOutDate ? formatDate(guest.checkOutDate) : '-'}</strong></div>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Camere:</span> <strong>{guest.hotelRoomsNeeded || '-'}</strong></div>
-              {guest.dietaryRestrictions && guest.dietaryRestrictions.toLowerCase() !== 'none' && (
-                <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--warning)' }}>🍽️ Dieta:</span> <strong>{guest.dietaryRestrictions}</strong></div>
-              )}
-              {guest.mobilityNeeds && guest.mobilityNeeds.toLowerCase() !== 'none' && (
-                <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--danger)' }}>♿ Mobilità:</span> <strong>{guest.mobilityNeeds}</strong></div>
-              )}
-              {guest.medicalInfo && guest.medicalInfo.toLowerCase() !== 'none' && (
-                <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--text-secondary)' }}>🏥 Info mediche:</span> {guest.medicalInfo}</div>
-              )}
-              {guest.specialRequests && (
-                <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--text-secondary)' }}>⚠️ Richieste:</span> {guest.specialRequests}</div>
-              )}
-              {guest.bio && (
-                <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--text-secondary)' }}>📝 Bio:</span> {guest.bio}</div>
-              )}
+              <Field label="Email" value={guest.email} />
+              <Field label="Cellulare" value={guest.phone} />
+              <Field label="Tel. ufficio" value={guest.phoneOffice} />
+              <Field label="Città" value={[guest.city, guest.state].filter(Boolean).join(', ')} />
+              <Field label="Indirizzo" value={guest.mailingAddress} />
+              <Field label="CAP" value={guest.zip} />
+              <Field label="Data nascita" value={guest.dateOfBirth} />
+              {guest.whatsappOptIn && <Field label="WhatsApp" value="Opt-in" />}
             </div>
           </div>
+
+          {/* Hotel */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-title" style={{ marginBottom: 8 }}>🏨 Hotel</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, fontSize: 14 }}>
+              <Field label="Camera" value={guest.roomType} />
+              <Field label="N. camere" value={guest.hotelRoomsNeeded} />
+              <Field label="Check-in" value={guest.checkInDate ? formatDate(guest.checkInDate) : null} />
+              <Field label="Check-out" value={guest.checkOutDate ? formatDate(guest.checkOutDate) : null} />
+              <Field label="Upgrade" value={guest.hotelUpgrade} />
+            </div>
+          </div>
+
+          {/* Passport */}
+          {(guest.passportCountry || guest.passportNumber) && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-title" style={{ marginBottom: 8 }}>🛂 Passaporto</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, fontSize: 14 }}>
+                <Field label="Paese" value={guest.passportCountry} />
+                <Field label="Numero" value={guest.passportNumber} />
+                <Field label="Scadenza" value={guest.passportExpiry} />
+                <Field label="Data nascita" value={guest.dateOfBirth} />
+              </div>
+            </div>
+          )}
+
+          {/* Diet & Medical */}
+          {(guest.dietaryRestrictions || guest.mobilityNeeds || guest.medicalInfo) && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-title" style={{ marginBottom: 8 }}>🍽️ Esigenze</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, fontSize: 14 }}>
+                {guest.dietaryRestrictions && guest.dietaryRestrictions.toLowerCase() !== 'none' && (
+                  <div><span style={{ color: 'var(--warning)' }}>Dieta:</span> <strong>{guest.dietaryRestrictions}</strong></div>
+                )}
+                {guest.mobilityNeeds && guest.mobilityNeeds.toLowerCase() !== 'none' && (
+                  <div><span style={{ color: 'var(--danger)' }}>Mobilità:</span> <strong>{guest.mobilityNeeds}</strong></div>
+                )}
+                {guest.medicalInfo && guest.medicalInfo.toLowerCase() !== 'none' && (
+                  <div><span style={{ color: 'var(--text-secondary)' }}>Info mediche:</span> {guest.medicalInfo}</div>
+                )}
+                {guest.healthAttestation && <div style={{ color: 'var(--success)', fontSize: 12 }}>✓ Health Self-Attestation</div>}
+              </div>
+            </div>
+          )}
 
           {/* Emergency & Assistant */}
           {(guest.emergencyName || guest.assistantName) && (
@@ -150,20 +315,43 @@ export default function GuestDetail() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, fontSize: 14 }}>
                 {guest.emergencyName && (
                   <div>
-                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Contatto Emergenza</div>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>📞 Contatto Emergenza</div>
                     <div>{guest.emergencyName} {guest.emergencyRelation ? `(${guest.emergencyRelation})` : ''}</div>
-                    {guest.emergencyPhone && <div style={{ fontSize: 12 }}>📞 {guest.emergencyPhone}</div>}
-                    {guest.emergencyEmail && <div style={{ fontSize: 12 }}>✉️ {guest.emergencyEmail}</div>}
+                    {guest.emergencyPhone && <div style={{ fontSize: 12 }}>Tel: {guest.emergencyPhone}</div>}
+                    {guest.emergencyEmail && <div style={{ fontSize: 12 }}>Email: {guest.emergencyEmail}</div>}
                   </div>
                 )}
                 {guest.assistantName && (
                   <div>
-                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Assistente</div>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>👤 Assistente</div>
                     <div>{guest.assistantName}</div>
-                    {guest.assistantPhone && <div style={{ fontSize: 12 }}>📞 {guest.assistantPhone}</div>}
-                    {guest.assistantEmail && <div style={{ fontSize: 12 }}>✉️ {guest.assistantEmail}</div>}
+                    {guest.assistantPhone && <div style={{ fontSize: 12 }}>Tel: {guest.assistantPhone}</div>}
+                    {guest.assistantEmail && <div style={{ fontSize: 12 }}>Email: {guest.assistantEmail}</div>}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Bio & Requests */}
+          {(guest.bio || guest.specialRequests || guest.notes) && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              {guest.bio && <div style={{ marginBottom: 8, fontSize: 14 }}><span style={{ color: 'var(--text-secondary)' }}>Bio:</span> {guest.bio}</div>}
+              {guest.specialRequests && <div style={{ marginBottom: 8, fontSize: 14 }}><span style={{ color: 'var(--warning)' }}>Richieste speciali:</span> {guest.specialRequests}</div>}
+              {guest.notes && <div style={{ fontSize: 14 }}><span style={{ color: 'var(--text-secondary)' }}>Note:</span> {guest.notes}</div>}
+            </div>
+          )}
+
+          {/* Consent badges */}
+          {(guest.privacyConsent || guest.imageRightsConsent || guest.cancellationConsent || guest.liabilityConsent || guest.insuranceConsent) && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-title" style={{ marginBottom: 8 }}>🔒 Consensi</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {guest.privacyConsent && <span className="badge" style={{ background: '#ecfdf5', color: 'var(--success)' }}>✓ Privacy</span>}
+                {guest.imageRightsConsent && <span className="badge" style={{ background: '#ecfdf5', color: 'var(--success)' }}>✓ Image Rights</span>}
+                {guest.cancellationConsent && <span className="badge" style={{ background: '#ecfdf5', color: 'var(--success)' }}>✓ Cancellation</span>}
+                {guest.liabilityConsent && <span className="badge" style={{ background: '#ecfdf5', color: 'var(--success)' }}>✓ Liability</span>}
+                {guest.insuranceConsent && <span className="badge" style={{ background: '#ecfdf5', color: 'var(--success)' }}>✓ Insurance</span>}
               </div>
             </div>
           )}
@@ -171,59 +359,70 @@ export default function GuestDetail() {
       )}
 
       {/* Companions */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-header">
-          <div className="card-title">Accompagnatori</div>
-          <button className="btn btn-sm btn-primary" onClick={() => setCompModal(true)}>+ Accompagnatore</button>
+      {!isNew && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <div className="card-title">Accompagnatori</div>
+            <button className="btn btn-sm btn-primary" onClick={() => setCompModal(true)}>+ Accompagnatore</button>
+          </div>
+          {!guest.companions?.length ? <div className="empty">Nessun accompagnatore</div> : (
+            <table>
+              <thead><tr><th>Nome</th><th>Relazione</th><th></th></tr></thead>
+              <tbody>
+                {guest.companions.map(c => (
+                  <tr key={c.id}>
+                    <td style={{ fontWeight: 500 }}>{c.fullName}</td>
+                    <td>{c.relationship || '-'}</td>
+                    <td><button className="btn btn-sm" onClick={() => handleDeleteCompanion(c.id)}>🗑</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
-        {!guest.companions?.length ? <div className="empty">Nessun accompagnatore</div> : (
-          <table>
-            <thead><tr><th>Nome</th><th>Relazione</th><th></th></tr></thead>
-            <tbody>
-              {guest.companions.map(c => (
-                <tr key={c.id}>
-                  <td style={{ fontWeight: 500 }}>{c.fullName}</td>
-                  <td>{c.relationship || '-'}</td>
-                  <td><button className="btn btn-sm" onClick={() => handleDeleteCompanion(c.id)}>🗑</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      )}
 
       {/* Flights */}
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">Voli</div>
-          <button className="btn btn-sm btn-primary" onClick={() => setFlightModal({})}>+ Volo</button>
+      {!isNew && (
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">Voli</div>
+            <button className="btn btn-sm btn-primary" onClick={() => setFlightModal({})}>+ Volo</button>
+          </div>
+          {!guest.flights?.length ? <div className="empty">Nessun volo registrato</div> : (
+            <table>
+              <thead><tr><th>Direzione</th><th>Compagnia</th><th>N. Volo</th><th>Da</th><th>A</th><th>Data</th><th>Partenza</th><th>Arrivo</th><th></th></tr></thead>
+              <tbody>
+                {guest.flights.map(f => (
+                  <tr key={f.id}>
+                    <td><span className="badge" style={{ background: f.direction === 'ARRIVAL' ? '#ecfdf5' : '#fef2f2', color: f.direction === 'ARRIVAL' ? 'var(--success)' : 'var(--danger)' }}>{f.direction === 'ARRIVAL' ? '🛬 Arrivo' : '🛫 Partenza'}</span></td>
+                    <td>{f.airline || '-'}</td>
+                    <td style={{ fontWeight: 600 }}>{f.flightNumber || '-'}</td>
+                    <td>{f.departureAirport || '-'}</td>
+                    <td>{f.arrivalAirport || '-'}</td>
+                    <td>{f.date ? formatDate(f.date) : '-'}</td>
+                    <td>{f.departureTime || '-'}</td>
+                    <td>{f.arrivalTime || '-'}{f.arrivalDay ? ` (${formatDate(f.arrivalDay)})` : ''}</td>
+                    <td><button className="btn btn-sm" onClick={() => handleDeleteFlight(f.id)}>🗑</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
-        {!guest.flights?.length ? <div className="empty">Nessun volo registrato</div> : (
-          <table>
-            <thead><tr><th>Direzione</th><th>Compagnia</th><th>N. Volo</th><th>Da</th><th>A</th><th>Data</th><th>Partenza</th><th>Arrivo</th><th></th></tr></thead>
-            <tbody>
-              {guest.flights.map(f => (
-                <tr key={f.id}>
-                  <td><span className="badge" style={{ background: f.direction === 'ARRIVAL' ? '#ecfdf5' : '#fef2f2', color: f.direction === 'ARRIVAL' ? 'var(--success)' : 'var(--danger)' }}>{f.direction === 'ARRIVAL' ? '🛬 Arrivo' : '🛫 Partenza'}</span></td>
-                  <td>{f.airline || '-'}</td>
-                  <td style={{ fontWeight: 600 }}>{f.flightNumber || '-'}</td>
-                  <td>{f.departureAirport || '-'}</td>
-                  <td>{f.arrivalAirport || '-'}</td>
-                  <td>{f.date ? formatDate(f.date) : '-'}</td>
-                  <td>{f.departureTime || '-'}</td>
-                  <td>{f.arrivalTime || '-'}{f.arrivalDay ? ` (${formatDate(f.arrivalDay)})` : ''}</td>
-                  <td><button className="btn btn-sm" onClick={() => handleDeleteFlight(f.id)}>🗑</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      )}
 
       {/* Modals */}
       {flightModal !== null && <FlightModal onClose={() => setFlightModal(null)} onSave={handleAddFlight} />}
       {compModal && <CompanionModal onClose={() => setCompModal(false)} onSave={handleAddCompanion} />}
     </div>
+  );
+}
+
+function Field({ label, value }) {
+  if (!value && value !== 0) return null;
+  return (
+    <div><span style={{ color: 'var(--text-secondary)' }}>{label}:</span> <strong>{value}</strong></div>
   );
 }
 

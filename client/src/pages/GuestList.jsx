@@ -37,6 +37,7 @@ export default function GuestList() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <h1 className="page-title" style={{ margin: 0 }}>Ospiti</h1>
         <div className="btn-group">
+          <button className="btn btn-sm btn-primary" onClick={() => navigate('/guests/new')}>+ Nuovo Ospite</button>
           <button className="btn btn-sm" onClick={() => navigate('/guests/import')}>📥 Import</button>
         </div>
       </div>
