@@ -478,9 +478,12 @@ router.post('/email/meet-greet', async (req, res) => {
 
       for (const { guest, flight } of sorted) {
         const pax = 1 + (guest.companions?.length || 0);
-        t += `👤 ${guest.firstName} ${guest.lastName}`;
-        if (guest.companions?.length) t += ` + ${guest.companions.map(c => c.fullName).join(', ')}`;
-        t += ` (${pax} ${it ? 'pax' : 'pax'})\n`;
+        t += `★ ${guest.firstName} ${guest.lastName} (${pax} pax)\n`;
+        if (guest.companions?.length) {
+          for (const c of guest.companions) {
+            t += `   👤 ${c.fullName}\n`;
+          }
+        }
 
         if (flight) {
           t += `   ✈️ ${flight.airline || '?'} ${flight.flightNumber || 'N/A'}`;
@@ -493,23 +496,29 @@ router.post('/email/meet-greet', async (req, res) => {
       }
     }
 
-    // Summary table
-    t += `═══════════════════════════════════\n📋 ${it ? 'RIEPILOGO' : 'SUMMARY'}\n═══════════════════════════════════\n\n`;
-    const h = { d: (it?'Data':'Date').padEnd(12), n: (it?'Ospite':'Guest').padEnd(26), p: 'Pax'.padEnd(5), f: (it?'Volo':'Flight').padEnd(14), a: it?'Arrivo':'Arrival' };
-    t += `${h.d} ${h.n} ${h.p} ${h.f} ${h.a}\n`;
-    t += `${'─'.repeat(12)} ${'─'.repeat(26)} ${'─'.repeat(5)} ${'─'.repeat(14)} ${'─'.repeat(8)}\n`;
+    // Summary table — all participants
+    t += `═══════════════════════════════════\n📋 ${it ? 'LISTA COMPLETA PARTECIPANTI' : 'FULL PARTICIPANT LIST'}\n═══════════════════════════════════\n\n`;
+    const h = { d: (it?'Data':'Date').padEnd(12), n: (it?'Partecipante':'Participant').padEnd(28), r: (it?'Ruolo':'Role').padEnd(14), f: (it?'Volo':'Flight').padEnd(14), a: (it?'Arrivo':'Arrival') };
+    t += `${h.d} ${h.n} ${h.r} ${h.f} ${h.a}\n`;
+    t += `${'─'.repeat(12)} ${'─'.repeat(28)} ${'─'.repeat(14)} ${'─'.repeat(14)} ${'─'.repeat(8)}\n`;
     for (const date of sortedDates) {
       const dl = date === 'TBD' ? 'TBD' : date;
       for (const { guest, flight } of byDate[date]) {
-        const pax = 1 + (guest.companions?.length || 0);
-        t += `${dl.padEnd(12)} ${`${guest.firstName} ${guest.lastName}`.substring(0,25).padEnd(26)} ${String(pax).padEnd(5)} ${(flight ? `${flight.airline||''} ${flight.flightNumber||''}`.trim() : 'TBD').substring(0,13).padEnd(14)} ${flight?.arrivalTime || '-'}\n`;
+        const mainLabel = it ? '★ Ospite' : '★ Guest';
+        t += `${dl.padEnd(12)} ${`${guest.firstName} ${guest.lastName}`.substring(0,27).padEnd(28)} ${mainLabel.padEnd(14)} ${(flight ? `${flight.airline||''} ${flight.flightNumber||''}`.trim() : 'TBD').substring(0,13).padEnd(14)} ${flight?.arrivalTime || '-'}\n`;
+        if (guest.companions?.length) {
+          const compLabel = it ? 'Accompagnatore' : 'Companion';
+          for (const c of guest.companions) {
+            t += `${'↑'.padEnd(12)} ${(c.fullName || '').substring(0,27).padEnd(28)} ${compLabel.substring(0,13).padEnd(14)} ${'↑'.padEnd(14)} ${'↑'}\n`;
+          }
+        }
       }
     }
 
     t += `\n───────────────────────────────────\n`;
     t += it
-      ? `Totale: ${guests.length} ospiti, ${totalPeople} persone\n\nGrazie,\nCordiali saluti`
-      : `Total: ${guests.length} guests, ${totalPeople} people\n\nThank you,\nBest regards`;
+      ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\n\nGrazie,\nCordiali saluti`
+      : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\n\nThank you,\nBest regards`;
 
     res.json({ email: t, guestCount: guests.length });
   } catch (err) {
@@ -549,14 +558,17 @@ router.post('/email/transportation', async (req, res) => {
 
       for (const { guest, flight } of sorted) {
         const pax = 1 + (guest.companions?.length || 0);
-        t += `👤 ${guest.firstName} ${guest.lastName}`;
-        if (guest.companions?.length) t += ` + ${guest.companions.map(c => c.fullName).join(', ')}`;
-        t += ` (${pax} pax)\n`;
+        t += `★ ${guest.firstName} ${guest.lastName} (${pax} pax)\n`;
+        if (guest.companions?.length) {
+          for (const c of guest.companions) {
+            t += `   👤 ${c.fullName}\n`;
+          }
+        }
 
         if (flight) {
           t += `   ✈️ ${flight.airline || '?'} ${flight.flightNumber || 'N/A'}`;
           t += ` (${flight.departureAirport || '?'} → ${flight.arrivalAirport || '?'})`;
-          if (flight.arrivalTime) t += ` — ${it ? 'arrivo' : 'arr.'} ${flight.arrivalTime}`;
+          if (flight.arrivalTime) t += ` — ${it ? 'arrivo' : 'arrival'} ${flight.arrivalTime}`;
           t += `\n`;
         } else {
           t += `   ✈️ ${it ? 'Volo da confermare' : 'Flight TBD'}\n`;
@@ -567,16 +579,39 @@ router.post('/email/transportation', async (req, res) => {
           t += `   🏨 ${it ? 'Destinazione' : 'Destination'}: ${guest.roomType}\n`;
         }
         if (guest.mobilityNeeds && guest.mobilityNeeds.toLowerCase() !== 'none') {
-          t += `   ♿ ${it ? 'Mobilità' : 'Mobility'}: ${guest.mobilityNeeds}\n`;
+          t += `   ♿ ${it ? 'Esigenze mobilità' : 'Mobility needs'}: ${guest.mobilityNeeds}\n`;
         }
         t += `\n`;
       }
     }
 
-    t += `───────────────────────────────────\n`;
+    // Full participant list
+    t += `═══════════════════════════════════\n`;
+    t += `📋 ${it ? 'LISTA COMPLETA PARTECIPANTI' : 'FULL PARTICIPANT LIST'}\n`;
+    t += `═══════════════════════════════════\n\n`;
+
+    const th = { d: (it?'Data':'Date').padEnd(12), n: (it?'Partecipante':'Participant').padEnd(28), r: (it?'Ruolo':'Role').padEnd(14), f: (it?'Volo':'Flight').padEnd(14), dest: (it?'Destinazione':'Destination') };
+    t += `${th.d} ${th.n} ${th.r} ${th.f} ${th.dest}\n`;
+    t += `${'─'.repeat(12)} ${'─'.repeat(28)} ${'─'.repeat(14)} ${'─'.repeat(14)} ${'─'.repeat(16)}\n`;
+    for (const date of sortedDates) {
+      const dl = date === 'TBD' ? 'TBD' : date;
+      for (const { guest, flight } of byDate[date]) {
+        const mainLabel = it ? '★ Ospite' : '★ Guest';
+        const dest = (guest.roomType || '-').substring(0, 15);
+        t += `${dl.padEnd(12)} ${`${guest.firstName} ${guest.lastName}`.substring(0,27).padEnd(28)} ${mainLabel.padEnd(14)} ${(flight ? `${flight.airline||''} ${flight.flightNumber||''}`.trim() : 'TBD').substring(0,13).padEnd(14)} ${dest}\n`;
+        if (guest.companions?.length) {
+          const compLabel = it ? 'Accompagnatore' : 'Companion';
+          for (const c of guest.companions) {
+            t += `${'↑'.padEnd(12)} ${(c.fullName || '').substring(0,27).padEnd(28)} ${compLabel.substring(0,13).padEnd(14)} ${'↑'.padEnd(14)} ${'↑'}\n`;
+          }
+        }
+      }
+    }
+
+    t += `\n───────────────────────────────────\n`;
     t += it
-      ? `Totale: ${guests.length} ospiti, ${totalPeople} persone, ${Object.keys(byDate).length} giorno/i\n\nGrazie,\nCordiali saluti`
-      : `Total: ${guests.length} guests, ${totalPeople} people, ${Object.keys(byDate).length} transfer day(s)\n\nThank you,\nBest regards`;
+      ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\nGiorni di trasferimento: ${Object.keys(byDate).length}\n\nGrazie,\nCordiali saluti`
+      : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\nTransfer days: ${Object.keys(byDate).length}\n\nThank you,\nBest regards`;
 
     res.json({ email: t, guestCount: guests.length });
   } catch (err) {
@@ -586,7 +621,7 @@ router.post('/email/transportation', async (req, res) => {
 
 // ══════════════════════════════════════════
 // POST generate Restaurant email
-// Info utili: allergie, restrizioni alimentari, preferenze
+// Lista TUTTI i partecipanti (ospite principale + accompagnatori)
 // ══════════════════════════════════════════
 router.post('/email/restaurant', async (req, res) => {
   try {
@@ -603,10 +638,10 @@ router.post('/email/restaurant', async (req, res) => {
     const totalPeople = guests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
 
     let t = it
-      ? `Gentili,\n\ndi seguito il riepilogo delle esigenze alimentari per i nostri ${totalPeople} ospiti.\n\n`
-      : `Dear Team,\n\nPlease find below the dietary requirements summary for our ${totalPeople} guests.\n\n`;
+      ? `Gentili,\n\ndi seguito il riepilogo delle esigenze alimentari per i nostri ${totalPeople} partecipanti (${guests.length} ospiti principali + accompagnatori).\n\n`
+      : `Dear Team,\n\nPlease find below the dietary requirements summary for our ${totalPeople} participants (${guests.length} primary guests + companions).\n\n`;
 
-    // Guests with dietary restrictions
+    // Section: guests with dietary restrictions (detail view)
     const withDiet = guests.filter(g => g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim()));
 
     if (withDiet.length > 0) {
@@ -615,37 +650,51 @@ router.post('/email/restaurant', async (req, res) => {
       t += `═══════════════════════════════════\n\n`;
 
       for (const g of withDiet) {
-        const pax = 1 + (g.companions?.length || 0);
-        t += `👤 ${g.firstName} ${g.lastName}`;
-        if (pax > 1) t += ` (+${pax - 1})`;
+        t += `👤 ${g.firstName} ${g.lastName} ★\n`;
+        t += `   ${g.dietaryRestrictions}\n`;
+        if (g.companions?.length) {
+          for (const c of g.companions) {
+            t += `   👤 ${c.fullName}\n`;
+          }
+        }
         t += `\n`;
-        t += `   ${g.dietaryRestrictions}\n\n`;
       }
     }
 
-    // Guests without restrictions
-    const noDiet = guests.filter(g => !g.dietaryRestrictions || ['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim()));
-
-    // Summary table
+    // Full participant list — every person on their own line
     t += `═══════════════════════════════════\n`;
-    t += `📋 ${it ? 'RIEPILOGO' : 'SUMMARY'}\n`;
+    t += `📋 ${it ? 'LISTA COMPLETA PARTECIPANTI' : 'FULL PARTICIPANT LIST'}\n`;
     t += `═══════════════════════════════════\n\n`;
 
-    t += `${(it?'Ospite':'Guest').padEnd(28)} ${(it?'Pax':'Pax').padEnd(5)} ${it?'Restrizioni':'Restrictions'}\n`;
-    t += `${'─'.repeat(28)} ${'─'.repeat(5)} ${'─'.repeat(35)}\n`;
+    const nameCol = it ? 'Partecipante' : 'Participant';
+    const roleCol = it ? 'Ruolo' : 'Role';
+    const dietCol = it ? 'Restrizioni' : 'Restrictions';
+    t += `${nameCol.padEnd(30)} ${roleCol.padEnd(16)} ${dietCol}\n`;
+    t += `${'─'.repeat(30)} ${'─'.repeat(16)} ${'─'.repeat(30)}\n`;
 
+    let countWithDiet = 0;
+    let countNoDiet = 0;
     for (const g of guests) {
-      const pax = 1 + (g.companions?.length || 0);
       const diet = g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim())
-        ? g.dietaryRestrictions.substring(0, 34)
-        : (it ? 'Nessuna' : 'None');
-      t += `${`${g.firstName} ${g.lastName}`.substring(0,27).padEnd(28)} ${String(pax).padEnd(5)} ${diet}\n`;
+        ? g.dietaryRestrictions.substring(0, 29) : (it ? 'Nessuna' : 'None');
+      const hasDiet = diet !== 'Nessuna' && diet !== 'None';
+      if (hasDiet) countWithDiet++; else countNoDiet++;
+      const mainLabel = it ? '★ Ospite' : '★ Guest';
+      t += `${`${g.firstName} ${g.lastName}`.substring(0,29).padEnd(30)} ${mainLabel.padEnd(16)} ${diet}\n`;
+
+      if (g.companions?.length) {
+        const compLabel = it ? 'Accompagnatore' : 'Companion';
+        for (const c of g.companions) {
+          countNoDiet++; // companions inherit main guest diet or unknown
+          t += `${(c.fullName || '').substring(0,29).padEnd(30)} ${compLabel.padEnd(16)} ${hasDiet ? diet : (it ? '—' : '—')}\n`;
+        }
+      }
     }
 
     t += `\n───────────────────────────────────\n`;
     t += it
-      ? `Totale: ${guests.length} ospiti, ${totalPeople} persone\n${it ? 'Con restrizioni' : 'With restrictions'}: ${withDiet.length} | ${it ? 'Senza restrizioni' : 'No restrictions'}: ${noDiet.length}\n\nGrazie,\nCordiali saluti`
-      : `Total: ${guests.length} guests, ${totalPeople} people\nWith restrictions: ${withDiet.length} | No restrictions: ${noDiet.length}\n\nThank you,\nBest regards`;
+      ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\nCon restrizioni: ${withDiet.length} | Senza restrizioni: ${guests.length - withDiet.length}\n\nGrazie,\nCordiali saluti`
+      : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\nWith restrictions: ${withDiet.length} | No restrictions: ${guests.length - withDiet.length}\n\nThank you,\nBest regards`;
 
     res.json({ email: t, guestCount: guests.length });
   } catch (err) {
@@ -655,7 +704,7 @@ router.post('/email/restaurant', async (req, res) => {
 
 // ══════════════════════════════════════════
 // POST generate Hotel email
-// Info utili: stanze, tipo camera, check-in/out, richieste, esigenze mobilità
+// Lista TUTTI i partecipanti per camera/check-in
 // ══════════════════════════════════════════
 router.post('/email/hotel', async (req, res) => {
   try {
@@ -673,8 +722,8 @@ router.post('/email/hotel', async (req, res) => {
     const totalRooms = guests.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0);
 
     let t = it
-      ? `Gentili,\n\ndi seguito il riepilogo delle prenotazioni hotel per i nostri ospiti.\n\n`
-      : `Dear Team,\n\nPlease find below the hotel booking summary for our guests.\n\n`;
+      ? `Gentili,\n\ndi seguito il riepilogo delle prenotazioni hotel per i nostri ${totalPeople} partecipanti (${guests.length} ospiti principali + accompagnatori), per un totale di ${totalRooms} camere.\n\n`
+      : `Dear Team,\n\nPlease find below the hotel booking summary for our ${totalPeople} participants (${guests.length} primary guests + companions), totaling ${totalRooms} rooms.\n\n`;
 
     // Group by check-in date
     const byCheckin = {};
@@ -687,52 +736,70 @@ router.post('/email/hotel', async (req, res) => {
 
     for (const date of sortedDates) {
       const dateLabel = date === 'TBD' ? (it ? 'Data da confermare' : 'Date TBD') : formatDateEmail(date);
-      t += `═══════════════════════════════════\n📅 Check-in: ${dateLabel}\n═══════════════════════════════════\n\n`;
+      const dayRooms = byCheckin[date].reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0);
+      const dayPeople = byCheckin[date].reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
+      t += `═══════════════════════════════════\n📅 Check-in: ${dateLabel} — ${dayRooms} ${it ? 'camere' : 'rooms'}, ${dayPeople} ${it ? 'persone' : 'people'}\n═══════════════════════════════════\n\n`;
 
       for (const g of byCheckin[date]) {
-        const pax = 1 + (g.companions?.length || 0);
         const checkout = g.checkOutDate ? formatDateEmail(g.checkOutDate) : 'TBD';
 
-        t += `👤 ${g.firstName} ${g.lastName}`;
-        if (g.companions?.length) t += ` + ${g.companions.map(c => c.fullName).join(', ')}`;
-        t += ` (${pax} pax)\n`;
+        // Main guest line (starred)
+        t += `★ ${g.firstName} ${g.lastName} — ${it ? 'ospite principale' : 'primary guest'}\n`;
+
+        // List each companion by name
+        if (g.companions?.length) {
+          for (const c of g.companions) {
+            t += `   👤 ${c.fullName}${c.relationship ? ` (${c.relationship})` : ''}\n`;
+          }
+        }
 
         if (g.roomType) t += `   🏨 ${it ? 'Camera' : 'Room'}: ${g.roomType}\n`;
-        if (g.hotelRoomsNeeded) t += `   🔑 ${it ? 'N. camere' : 'Rooms'}: ${g.hotelRoomsNeeded}\n`;
+        if (g.hotelRoomsNeeded) t += `   🔑 ${it ? 'N. camere' : 'N. rooms'}: ${g.hotelRoomsNeeded}\n`;
         t += `   📅 Check-out: ${checkout}\n`;
         if (g.hotelUpgrade) t += `   ⬆️ Upgrade: ${g.hotelUpgrade}\n`;
-
-        if (g.specialRequests) {
-          t += `   📝 ${it ? 'Richieste' : 'Requests'}: ${g.specialRequests}\n`;
-        }
+        if (g.specialRequests) t += `   📝 ${it ? 'Richieste speciali' : 'Special requests'}: ${g.specialRequests}\n`;
         if (g.mobilityNeeds && g.mobilityNeeds.toLowerCase() !== 'none') {
-          t += `   ♿ ${it ? 'Mobilità' : 'Mobility'}: ${g.mobilityNeeds}\n`;
+          t += `   ♿ ${it ? 'Esigenze mobilità' : 'Mobility needs'}: ${g.mobilityNeeds}\n`;
         }
         if (g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim())) {
-          t += `   🍽️ ${it ? 'Dieta' : 'Diet'}: ${g.dietaryRestrictions}\n`;
+          t += `   🍽️ ${it ? 'Restrizioni alimentari' : 'Dietary restrictions'}: ${g.dietaryRestrictions}\n`;
         }
         t += `\n`;
       }
     }
 
-    // Summary table
-    t += `═══════════════════════════════════\n📋 ${it ? 'RIEPILOGO' : 'SUMMARY'}\n═══════════════════════════════════\n\n`;
+    // Full participant list
+    t += `═══════════════════════════════════\n`;
+    t += `📋 ${it ? 'LISTA COMPLETA PARTECIPANTI' : 'FULL PARTICIPANT LIST'}\n`;
+    t += `═══════════════════════════════════\n\n`;
 
-    t += `${(it?'Ospite':'Guest').padEnd(26)} ${'Pax'.padEnd(5)} ${(it?'Camera':'Room').padEnd(22)} ${'Check-in'.padEnd(12)} ${'Check-out'}\n`;
-    t += `${'─'.repeat(26)} ${'─'.repeat(5)} ${'─'.repeat(22)} ${'─'.repeat(12)} ${'─'.repeat(12)}\n`;
+    const nameH = (it ? 'Partecipante' : 'Participant').padEnd(28);
+    const roleH = (it ? 'Ruolo' : 'Role').padEnd(16);
+    const roomH = (it ? 'Camera' : 'Room').padEnd(20);
+    const ciH = 'Check-in'.padEnd(12);
+    const coH = 'Check-out';
+    t += `${nameH} ${roleH} ${roomH} ${ciH} ${coH}\n`;
+    t += `${'─'.repeat(28)} ${'─'.repeat(16)} ${'─'.repeat(20)} ${'─'.repeat(12)} ${'─'.repeat(12)}\n`;
 
     for (const g of guests) {
-      const pax = 1 + (g.companions?.length || 0);
-      const room = (g.roomType || 'TBD').substring(0, 21);
       const ci = g.checkInDate ? new Date(g.checkInDate).toISOString().split('T')[0] : 'TBD';
       const co = g.checkOutDate ? new Date(g.checkOutDate).toISOString().split('T')[0] : 'TBD';
-      t += `${`${g.firstName} ${g.lastName}`.substring(0,25).padEnd(26)} ${String(pax).padEnd(5)} ${room.padEnd(22)} ${ci.padEnd(12)} ${co}\n`;
+      const room = (g.roomType || 'TBD').substring(0, 19);
+      const mainLabel = it ? '★ Ospite' : '★ Guest';
+      t += `${`${g.firstName} ${g.lastName}`.substring(0,27).padEnd(28)} ${mainLabel.padEnd(16)} ${room.padEnd(20)} ${ci.padEnd(12)} ${co}\n`;
+
+      if (g.companions?.length) {
+        const compLabel = it ? 'Accompagnatore' : 'Companion';
+        for (const c of g.companions) {
+          t += `${(c.fullName || '').substring(0,27).padEnd(28)} ${compLabel.padEnd(16)} ${'↑'.padEnd(20)} ${'↑'.padEnd(12)} ${'↑'}\n`;
+        }
+      }
     }
 
     t += `\n───────────────────────────────────\n`;
     t += it
-      ? `Totale: ${guests.length} ospiti, ${totalPeople} persone, ${totalRooms} camere\n\nGrazie,\nCordiali saluti`
-      : `Total: ${guests.length} guests, ${totalPeople} people, ${totalRooms} rooms\n\nThank you,\nBest regards`;
+      ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\nCamere totali: ${totalRooms}\n\nGrazie,\nCordiali saluti`
+      : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\nTotal rooms: ${totalRooms}\n\nThank you,\nBest regards`;
 
     res.json({ email: t, guestCount: guests.length });
   } catch (err) {
