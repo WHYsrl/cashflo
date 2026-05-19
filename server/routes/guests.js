@@ -957,6 +957,8 @@ router.post('/translate-fields', async (req, res) => {
 // ============================================================
 router.post('/insights', async (req, res) => {
   try {
+    const { language } = req.body || {};
+    const it = language === 'it';
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurata' });
 
@@ -986,25 +988,45 @@ router.post('/insights', async (req, res) => {
       checkIn: g.checkInDate,
       checkOut: g.checkOutDate,
       roomType: g.roomType,
+      hotelUpgrade: g.hotelUpgrade,
     }));
 
-    const prompt = `Sei un coordinatore esperto di eventi VIP. Analizza i seguenti dati degli ospiti e genera un report di INSIGHTS e ALERT strutturato in sezioni. Per ogni ospite e per il gruppo nel suo complesso, segnala:
+    const prompt = it
+      ? `Sei un coordinatore esperto di eventi VIP. Analizza i seguenti dati degli ospiti e genera un report di INSIGHTS e ALERT strutturato in sezioni. TUTTO deve essere in ITALIANO, inclusi i contenuti dei campi come restrizioni alimentari, esigenze mobilità, richieste speciali — traduci TUTTO in italiano. Per ogni ospite e per il gruppo nel suo complesso, segnala:
 
 1. **ARRIVI** - Raggruppa per giorno di arrivo. Segnala ospiti che arrivano lo stesso giorno/orario simile (possibilità di raggruppare trasferimenti). Segnala arrivi molto presto o molto tardi.
 
 2. **ALERT FORNITORI** - Suddiviso per categoria:
    - 🏨 HOTEL: Richieste speciali stanze, early check-in, upgrade, letti separati, piani alti, ecc.
-   - 🍽️ RISTORANTI: Restrizioni alimentari, allergie, diete particolari - elenca OGNI ospite con le sue specifiche
-   - 🚐 TRASPORTI: Esigenze mobilità, wheelchair, assistenza speciale
+   - 🍽️ RISTORANTI: Restrizioni alimentari, allergie, diete particolari - elenca OGNI ospite con le sue specifiche (TRADUCENDO in italiano le restrizioni)
+   - 🚐 TRASPORTI: Esigenze mobilità, wheelchair, assistenza speciale (TRADUCENDO in italiano le esigenze)
    - 🤝 MEET & GREET: Note su accoglienza particolari, VIP particolari
 
-3. **ESIGENZE SPECIALI** - Ospiti con necessità mediche, mobilità ridotta, o richieste particolari da tenere monitorate
+3. **ESIGENZE SPECIALI** - Ospiti con necessità mediche, mobilità ridotta, o richieste particolari da tenere monitorate (TUTTO TRADOTTO in italiano)
 
 4. **RIEPILOGO NUMERI** - Totale ospiti, totale persone (con accompagnatori), camere necessarie, voli da monitorare
 
-Rispondi in ITALIANO. Sii preciso e concreto, nomina sempre gli ospiti specifici.
+Rispondi INTERAMENTE in ITALIANO. Traduci ANCHE i contenuti dei dati (allergie, esigenze, richieste) dall'inglese all'italiano. Sii preciso e concreto, nomina sempre gli ospiti specifici.
 
 Dati ospiti:
+${JSON.stringify(guestSummary, null, 2)}`
+      : `You are an expert VIP event coordinator. Analyze the following guest data and generate a structured INSIGHTS and ALERTS report. For each guest and the group as a whole, highlight:
+
+1. **ARRIVALS** - Group by arrival day. Flag guests arriving at similar times (shared transfer opportunities). Flag very early or very late arrivals.
+
+2. **SUPPLIER ALERTS** - By category:
+   - 🏨 HOTEL: Special room requests, early check-in, upgrades, separate beds, high floors, etc.
+   - 🍽️ RESTAURANTS: Dietary restrictions, allergies, special diets — list EVERY guest with specifics
+   - 🚐 TRANSPORT: Mobility needs, wheelchair, special assistance
+   - 🤝 MEET & GREET: Special welcome notes, particular VIPs
+
+3. **SPECIAL NEEDS** - Guests with medical needs, reduced mobility, or special requests to monitor
+
+4. **NUMBERS SUMMARY** - Total guests, total people (with companions), rooms needed, flights to monitor
+
+Respond in ENGLISH. Be precise and concrete, always name the specific guests.
+
+Guest data:
 ${JSON.stringify(guestSummary, null, 2)}`;
 
     const response = await client.messages.create({
@@ -1014,6 +1036,96 @@ ${JSON.stringify(guestSummary, null, 2)}`;
     });
 
     res.json({ insights: response.content[0]?.text || '' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// CONTROLLO VOLI (AI Flight Status Check)
+// ============================================================
+router.post('/flight-check', async (req, res) => {
+  try {
+    const { language } = req.body || {};
+    const it = language === 'it';
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurata' });
+
+    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    const client = new Anthropic({ apiKey });
+
+    const guests = await prisma.guest.findMany({
+      include: { companions: true, flights: true }
+    });
+
+    const today = new Date().toISOString().split('T')[0];
+
+    const flightData = guests
+      .filter(g => g.flights?.some(f => f.direction === 'ARRIVAL'))
+      .map(g => {
+        const arr = g.flights.find(f => f.direction === 'ARRIVAL');
+        return {
+          guest: `${g.firstName} ${g.lastName}`,
+          pax: 1 + (g.companions?.length || 0),
+          airline: arr.airline,
+          flightNumber: arr.flightNumber,
+          date: arr.arrivalDay || arr.date,
+          arrivalTime: arr.arrivalTime,
+          departureAirport: arr.departureAirport,
+          arrivalAirport: arr.arrivalAirport,
+          mobilityNeeds: g.mobilityNeeds,
+        };
+      });
+
+    const prompt = it
+      ? `Sei un esperto di logistica aeroportuale. Analizza i seguenti voli degli ospiti per un evento VIP a Roma (Giugno 2026) e genera un REPORT SULLO STATO DEI VOLI.
+
+Per ogni volo, basandoti sulle tue conoscenze:
+1. Verifica se la compagnia aerea e la tratta sono plausibili e operative
+2. Segnala eventuali problemi noti della tratta (scali lunghi, aeroporti con ritardi frequenti, ecc.)
+3. Identifica voli in connessione o con scali rischiosi
+4. Segnala orari di arrivo critici (notte, prima mattina) che richiedono coordinamento speciale
+5. Verifica compatibilità degli orari per raggruppare i trasferimenti
+
+Struttura il report così:
+## ✅ VOLI OK — voli senza problemi evidenti
+## ⚠️ ATTENZIONE — voli con potenziali criticità (ritardi frequenti della tratta, orari scomodi, scali rischiosi)
+## 🔴 CRITICITÀ — problemi seri (tratte non operative, tempi connessione stretti, arrivi in orari proibitivi)
+## 🚐 RAGGRUPPAMENTO TRASFERIMENTI — chi può condividere il transfer in base agli orari
+
+Data odierna: ${today}
+Rispondi INTERAMENTE in ITALIANO. Traduci anche eventuali termini tecnici.
+
+Dati voli:
+${JSON.stringify(flightData, null, 2)}`
+      : `You are an expert in airport logistics. Analyze the following guest flights for a VIP event in Rome (June 2026) and generate a FLIGHT STATUS REPORT.
+
+For each flight, based on your knowledge:
+1. Verify if the airline and route are plausible and operational
+2. Flag any known issues with the route (long layovers, airports with frequent delays, etc.)
+3. Identify connecting flights or risky layovers
+4. Flag critical arrival times (night, early morning) requiring special coordination
+5. Check time compatibility for grouping transfers
+
+Structure the report as:
+## ✅ FLIGHTS OK — flights with no evident issues
+## ⚠️ ATTENTION — flights with potential concerns (frequent delays on route, inconvenient times, risky connections)
+## 🔴 CRITICAL — serious problems (non-operational routes, tight connections, arrivals at prohibitive hours)
+## 🚐 TRANSFER GROUPING — who can share transfers based on timing
+
+Today's date: ${today}
+Respond in ENGLISH.
+
+Flight data:
+${JSON.stringify(flightData, null, 2)}`;
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    res.json({ flightCheck: response.content[0]?.text || '' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

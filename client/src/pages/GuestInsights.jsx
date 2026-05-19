@@ -145,6 +145,8 @@ export default function GuestInsights() {
   const [aiInsights, setAiInsights] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
+  const [flightCheck, setFlightCheck] = useState('');
+  const [flightLoading, setFlightLoading] = useState(false);
 
   const t = L[language];
 
@@ -275,10 +277,20 @@ export default function GuestInsights() {
     setAiLoading(true);
     setAiError(null);
     try {
-      const result = await api.getGuestInsights(token);
+      const result = await api.getGuestInsights(language, token);
       setAiInsights(result.insights);
     } catch (e) { setAiError(e.message); }
     setAiLoading(false);
+  };
+
+  /* ── Flight Check ── */
+  const checkFlights = async () => {
+    setFlightLoading(true);
+    try {
+      const result = await api.checkFlights(language, token);
+      setFlightCheck(result.flightCheck);
+    } catch (e) { alert(e.message); }
+    setFlightLoading(false);
   };
 
   const renderMarkdown = (text) => {
@@ -299,14 +311,20 @@ export default function GuestInsights() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 8 }}>
         <h1 className="page-title" style={{ margin: 0 }}>{t.title}</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {translating && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>⏳ Traduzione AI in corso...</span>}
+          {translating && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>⏳ Traduzione AI...</span>}
           <select className="form-select" style={{ width: 'auto' }} value={language} onChange={e => handleLanguageChange(e.target.value)}>
             <option value="it">Italiano</option>
             <option value="en">English</option>
           </select>
+          <button className="btn" onClick={checkFlights} disabled={flightLoading} style={{ whiteSpace: 'nowrap' }}>
+            {flightLoading ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2, marginRight: 6, verticalAlign: 'middle', display: 'inline-block' }} /> {language === 'it' ? 'Controllo...' : 'Checking...'}</> : '✈️ Controllo Voli'}
+          </button>
+          <button className="btn btn-primary" onClick={generateAI} disabled={aiLoading} style={{ whiteSpace: 'nowrap' }}>
+            {aiLoading ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2, marginRight: 6, verticalAlign: 'middle', display: 'inline-block' }} /> {t.aiBtnLoading}</> : t.aiBtn}
+          </button>
         </div>
       </div>
 
@@ -488,16 +506,44 @@ export default function GuestInsights() {
         </div>
       </Section>
 
+      {/* ── Flight Check ── */}
+      {(flightCheck || flightLoading) && (
+        <Section icon="✈️" title={language === 'it' ? 'Controllo Voli' : 'Flight Check'} badge="AI" badgeColor="#0ea5e9" defaultOpen={true}>
+          {flightLoading && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', gap: 16 }}>
+              <div className="spinner" style={{ width: 36, height: 36, borderWidth: 3 }} />
+              <div style={{ fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center' }}>
+                {language === 'it' ? 'Analisi voli in corso...' : 'Analyzing flights...'}<br/>
+                <span style={{ fontSize: 12 }}>{language === 'it' ? 'Verifica tratte, orari e potenziali criticità...' : 'Checking routes, times and potential issues...'}</span>
+              </div>
+            </div>
+          )}
+          {!flightLoading && flightCheck && (
+            <div style={{ lineHeight: 1.6, padding: 16, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, maxHeight: 600, overflowY: 'auto' }}>
+              {renderMarkdown(flightCheck)}
+            </div>
+          )}
+        </Section>
+      )}
+
       {/* ── AI Insights ── */}
-      <Section icon="🤖" title={t.aiTitle} badge="Claude AI" badgeColor="#8b5cf6">
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
-          {t.aiDesc}
-        </p>
-        <button className="btn btn-primary" onClick={generateAI} disabled={aiLoading} style={{ marginBottom: 12 }}>
-          {aiLoading ? t.aiBtnLoading : t.aiBtn}
-        </button>
+      <Section icon="🤖" title={t.aiTitle} badge="Claude AI" badgeColor="#8b5cf6" defaultOpen={!!(aiInsights || aiLoading)}>
+        {aiLoading && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', gap: 16 }}>
+            <div className="spinner" style={{ width: 36, height: 36, borderWidth: 3 }} />
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center' }}>
+              {t.aiBtnLoading}<br/>
+              <span style={{ fontSize: 12 }}>{language === 'it' ? 'L\'analisi può richiedere 15-30 secondi...' : 'Analysis may take 15-30 seconds...'}</span>
+            </div>
+          </div>
+        )}
+        {!aiLoading && !aiInsights && (
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+            {t.aiDesc}
+          </p>
+        )}
         {aiError && <AlertBadge type="danger">{aiError}</AlertBadge>}
-        {aiInsights && (
+        {!aiLoading && aiInsights && (
           <div style={{ lineHeight: 1.6, padding: 16, background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8, maxHeight: 600, overflowY: 'auto' }}>
             {renderMarkdown(aiInsights)}
           </div>

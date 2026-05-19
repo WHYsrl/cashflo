@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../utils/api.js';
 
@@ -12,16 +12,14 @@ export default function GuestRestaurant() {
   const [generating, setGenerating] = useState(false);
   const [language, setLanguage] = useState('en');
   const [copied, setCopied] = useState(false);
+  const [view, setView] = useState('report');
 
   useEffect(() => { if (!token) navigate('/guests/login'); }, [token]);
   useEffect(() => {
     if (token) api.getGuests(token).then(g => { setGuests(g); setSelected(g.map(x => x.id)); }).catch(() => navigate('/guests/login')).finally(() => setLoading(false));
   }, [token]);
 
-  const toggleAll = () => {
-    if (selected.length === guests.length) setSelected([]);
-    else setSelected(guests.map(g => g.id));
-  };
+  const toggleAll = () => selected.length === guests.length ? setSelected([]) : setSelected(guests.map(g => g.id));
   const toggle = (id) => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const generate = async () => {
@@ -29,6 +27,7 @@ export default function GuestRestaurant() {
     try {
       const result = await api.generateRestaurantEmail(selected, language, token);
       setEmail(result.email);
+      setView('email');
     } catch (e) { alert(e.message); }
     setGenerating(false);
   };
@@ -39,43 +38,68 @@ export default function GuestRestaurant() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const selectedGuests = useMemo(() => guests.filter(g => selected.includes(g.id)), [guests, selected]);
+  const totalPeople = useMemo(() => selectedGuests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0), [selectedGuests]);
+  const withDiet = useMemo(() => selectedGuests.filter(g => g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim())), [selectedGuests]);
+  const noDiet = useMemo(() => selectedGuests.filter(g => !g.dietaryRestrictions || ['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim())), [selectedGuests]);
+
+  // Group by dietary type
+  const dietByType = useMemo(() => {
+    const map = {};
+    withDiet.forEach(g => {
+      const diet = g.dietaryRestrictions.toLowerCase().trim();
+      // Categorize broadly
+      let cat = g.dietaryRestrictions;
+      if (diet.includes('kosher')) cat = 'Kosher';
+      else if (diet.includes('vegetarian') || diet.includes('vegetariano')) cat = 'Vegetarian';
+      else if (diet.includes('vegan')) cat = 'Vegan';
+      else if (diet.includes('gluten')) cat = 'Gluten free';
+      else if (diet.includes('halal')) cat = 'Halal';
+      if (!map[cat]) map[cat] = [];
+      map[cat].push(g);
+    });
+    return Object.entries(map).sort((a, b) => b[1].length - a[1].length);
+  }, [withDiet]);
+
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
   return (
     <div>
-      <h1 className="page-title">Ristorante — Email Generator</h1>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: 16, fontSize: 14 }}>
-        Seleziona gli ospiti e genera un riepilogo di allergie, restrizioni alimentari e preferenze per il ristorante.
-      </p>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={selected.length === guests.length} onChange={toggleAll} />
-              <strong>{selected.length}/{guests.length} ospiti selezionati</strong>
-            </label>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <h1 className="page-title" style={{ margin: 0 }}>🍽️ Ristorante</h1>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="view-tabs">
+            <button className={`view-tab${view === 'report' ? ' active' : ''}`} onClick={() => setView('report')}>📊 Report</button>
+            <button className={`view-tab${view === 'email' ? ' active' : ''}`} onClick={() => setView('email')}>✉️ Email</button>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <select className="form-select" style={{ width: 'auto' }} value={language} onChange={e => setLanguage(e.target.value)}>
-              <option value="en">English</option>
-              <option value="it">Italiano</option>
-            </select>
-            <button className="btn btn-primary" onClick={generate} disabled={generating || selected.length === 0}>
-              {generating ? '⏳ Generazione...' : '🍽️ Genera Email'}
-            </button>
-          </div>
+          <select className="form-select" style={{ width: 'auto' }} value={language} onChange={e => setLanguage(e.target.value)}>
+            <option value="en">English</option>
+            <option value="it">Italiano</option>
+          </select>
+          <button className="btn btn-primary" onClick={generate} disabled={generating || selected.length === 0}>
+            {generating ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2, display: 'inline-block', marginRight: 6 }} /> Generazione...</> : '🍽️ Genera Email'}
+          </button>
         </div>
+      </div>
 
-        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+      {/* Guest selector */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={selected.length === guests.length} onChange={toggleAll} />
+            <strong>{selected.length}/{guests.length} ospiti selezionati</strong>
+          </label>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{totalPeople} persone totali</span>
+        </div>
+        <div style={{ maxHeight: 200, overflowY: 'auto' }}>
           {guests.map(g => {
-            const hasDiet = g.dietaryRestrictions && g.dietaryRestrictions.toLowerCase() !== 'none';
+            const hasDiet = g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim());
             return (
-              <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer', fontSize: 14 }}>
+              <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer', fontSize: 13 }}>
                 <input type="checkbox" checked={selected.includes(g.id)} onChange={() => toggle(g.id)} />
-                <span style={{ fontWeight: 500, minWidth: 160 }}>{g.firstName} {g.lastName}</span>
+                <span style={{ fontWeight: 500, minWidth: 150 }}>{g.firstName} {g.lastName}</span>
                 <span style={{ color: hasDiet ? 'var(--warning)' : 'var(--text-secondary)', fontSize: 12 }}>
-                  {hasDiet ? g.dietaryRestrictions.substring(0, 50) : 'No restrictions'}
+                  {hasDiet ? g.dietaryRestrictions.substring(0, 50) : 'Nessuna restrizione'}
                 </span>
                 {g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--primary)' }}>+{g.companions.length}</span>}
               </label>
@@ -84,15 +108,82 @@ export default function GuestRestaurant() {
         </div>
       </div>
 
-      {email && (
+      {/* ── REPORT VIEW ── */}
+      {view === 'report' && selectedGuests.length > 0 && (
+        <div>
+          <div className="stats-grid" style={{ marginBottom: 16 }}>
+            <div className="stat-card"><div className="stat-label">Persone totali</div><div className="stat-value">{totalPeople}</div></div>
+            <div className="stat-card"><div className="stat-label">Con restrizioni</div><div className="stat-value" style={{ color: withDiet.length > 0 ? 'var(--warning)' : undefined }}>{withDiet.length}</div></div>
+            <div className="stat-card"><div className="stat-label">Senza restrizioni</div><div className="stat-value" style={{ color: 'var(--success)' }}>{noDiet.length}</div></div>
+            <div className="stat-card"><div className="stat-label">Tipologie dieta</div><div className="stat-value">{dietByType.length}</div></div>
+          </div>
+
+          {/* Diet type summary cards */}
+          {dietByType.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12, marginBottom: 16 }}>
+              {dietByType.map(([type, gs]) => (
+                <div key={type} className="card" style={{ borderLeft: '4px solid var(--warning)' }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{type}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{gs.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0)} persone</div>
+                  {gs.map(g => (
+                    <div key={g.id} style={{ fontSize: 13, padding: '2px 0' }}>
+                      <span style={{ cursor: 'pointer', color: 'var(--primary)' }} onClick={() => navigate(`/guests/${g.id}`)}>★ {g.firstName} {g.lastName}</span>
+                      {g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}> +{g.companions.map(c => c.fullName).join(', ')}</span>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Full participant table */}
+          <div className="card">
+            <div className="card-header"><div className="card-title">Lista completa partecipanti</div></div>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Partecipante</th><th>Ruolo</th><th>Restrizioni / Allergie</th></tr></thead>
+                <tbody>
+                  {selectedGuests.map(g => {
+                    const hasDiet = g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim());
+                    return (
+                      <React.Fragment key={g.id}>
+                        <tr className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
+                          <td style={{ fontWeight: 600 }}>★ {g.firstName} {g.lastName}</td>
+                          <td style={{ fontSize: 12 }}>Ospite principale</td>
+                          <td style={{ color: hasDiet ? 'var(--warning)' : 'var(--text-secondary)', fontWeight: hasDiet ? 500 : 400 }}>
+                            {hasDiet ? g.dietaryRestrictions : 'Nessuna'}
+                          </td>
+                        </tr>
+                        {g.companions?.map((c, i) => (
+                          <tr key={`${g.id}-c${i}`} style={{ background: '#f8fafc' }}>
+                            <td style={{ paddingLeft: 24, fontSize: 12, color: 'var(--text-secondary)' }}>👤 {c.fullName}</td>
+                            <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Accompagnatore</td>
+                            <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{hasDiet ? '↑' : '—'}</td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EMAIL VIEW ── */}
+      {view === 'email' && email && (
         <div className="card">
           <div className="card-header">
             <div className="card-title">Email generata</div>
-            <button className="btn btn-sm btn-primary" onClick={copyToClipboard}>
-              {copied ? '✅ Copiato!' : '📋 Copia'}
-            </button>
+            <button className="btn btn-sm btn-primary" onClick={copyToClipboard}>{copied ? '✅ Copiato!' : '📋 Copia'}</button>
           </div>
           <pre className="whatsapp-output" style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 13, lineHeight: 1.6, background: '#f8fafc', padding: 16, borderRadius: 8, maxHeight: 600, overflowY: 'auto' }}>{email}</pre>
+        </div>
+      )}
+      {view === 'email' && !email && (
+        <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
+          Premi "Genera Email" per creare il riepilogo alimentare da inviare al ristorante.
         </div>
       )}
     </div>

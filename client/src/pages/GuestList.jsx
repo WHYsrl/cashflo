@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../utils/api.js';
 import { formatDate } from '../utils/format.js';
@@ -10,13 +10,137 @@ function useGuestAuth() {
   return token;
 }
 
+/* ── All available columns with metadata ── */
+const ALL_COLUMNS = [
+  // Personal
+  { key: 'name', label: 'Ospite', group: 'Anagrafica', default: true, render: g => `${g.firstName} ${g.lastName}`, bold: true },
+  { key: 'email', label: 'Email', group: 'Anagrafica', default: false, render: g => g.email || '-' },
+  { key: 'phone', label: 'Telefono', group: 'Anagrafica', default: false, render: g => g.phone || '-' },
+  { key: 'phoneOffice', label: 'Tel. Ufficio', group: 'Anagrafica', default: false, render: g => g.phoneOffice || '-' },
+  { key: 'mailingAddress', label: 'Indirizzo', group: 'Anagrafica', default: false, render: g => g.mailingAddress || '-' },
+  { key: 'city', label: 'Città', group: 'Anagrafica', default: false, render: g => g.city || '-' },
+  { key: 'state', label: 'Stato', group: 'Anagrafica', default: false, render: g => g.state || '-' },
+  { key: 'zip', label: 'CAP', group: 'Anagrafica', default: false, render: g => g.zip || '-' },
+  // Companions
+  { key: 'companions', label: 'Accompagnatori', group: 'Anagrafica', default: true, render: g => g.companions?.map(c => c.fullName).join(', ') || '-', small: true },
+  { key: 'pax', label: 'Persone', group: 'Anagrafica', default: true, render: g => 1 + (g.companions?.length || 0) },
+  // Flight
+  { key: 'arrivalFlight', label: 'Volo Arrivo', group: 'Voli', default: true, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.airline || ''} ${f.flightNumber || ''}`.trim() || '-' : '-'; }, small: true },
+  { key: 'arrivalDate', label: 'Arrivo', group: 'Voli', default: true, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f ? `${f.arrivalDay ? formatDate(f.arrivalDay) : f.date ? formatDate(f.date) : '-'}${f.arrivalTime ? ` ${f.arrivalTime}` : ''}` : '-'; }, small: true },
+  { key: 'arrivalFrom', label: 'Da', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f?.departureAirport || '-'; }, small: true },
+  { key: 'arrivalTo', label: 'A', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'ARRIVAL'); return f?.arrivalAirport || '-'; }, small: true },
+  { key: 'departureFlight', label: 'Volo Partenza', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'DEPARTURE'); return f ? `${f.airline || ''} ${f.flightNumber || ''}`.trim() || '-' : '-'; }, small: true },
+  { key: 'departureDate', label: 'Partenza', group: 'Voli', default: false, render: g => { const f = g.flights?.find(f => f.direction === 'DEPARTURE'); return f ? `${f.date ? formatDate(f.date) : '-'}${f.departureTime ? ` ${f.departureTime}` : ''}` : '-'; }, small: true },
+  // Hotel
+  { key: 'roomType', label: 'Camera', group: 'Hotel', default: true, render: g => g.roomType || '-', small: true },
+  { key: 'hotelRoomsNeeded', label: 'N. Camere', group: 'Hotel', default: false, render: g => g.hotelRoomsNeeded || '-' },
+  { key: 'checkIn', label: 'Check-in', group: 'Hotel', default: true, render: g => g.checkInDate ? formatDate(g.checkInDate) : '-', small: true },
+  { key: 'checkOut', label: 'Check-out', group: 'Hotel', default: false, render: g => g.checkOutDate ? formatDate(g.checkOutDate) : '-', small: true },
+  { key: 'hotelUpgrade', label: 'Upgrade', group: 'Hotel', default: false, render: g => g.hotelUpgrade || '-', small: true },
+  // Dietary & Medical
+  { key: 'dietary', label: 'Dieta', group: 'Dieta & Salute', default: true, render: g => g.dietaryRestrictions && g.dietaryRestrictions.toLowerCase() !== 'none' ? g.dietaryRestrictions.substring(0, 30) + (g.dietaryRestrictions.length > 30 ? '...' : '') : '-', small: true },
+  { key: 'mobility', label: 'Mobilità', group: 'Dieta & Salute', default: false, render: g => g.mobilityNeeds && !['none','n/a','no'].includes((g.mobilityNeeds||'').toLowerCase().trim()) ? g.mobilityNeeds : '-', small: true },
+  { key: 'medical', label: 'Info Mediche', group: 'Dieta & Salute', default: false, render: g => g.medicalInfo || '-', small: true },
+  { key: 'healthAttestation', label: 'Attestazione Salute', group: 'Dieta & Salute', default: false, render: g => g.healthAttestation ? '✅' : '—' },
+  // Passport
+  { key: 'passportCountry', label: 'Paese Passaporto', group: 'Passaporto', default: false, render: g => g.passportCountry || '-' },
+  { key: 'passportNumber', label: 'N. Passaporto', group: 'Passaporto', default: false, render: g => g.passportNumber || '-' },
+  { key: 'passportExpiry', label: 'Scadenza Pass.', group: 'Passaporto', default: false, render: g => g.passportExpiry || '-', small: true },
+  { key: 'dateOfBirth', label: 'Data Nascita', group: 'Passaporto', default: false, render: g => g.dateOfBirth || '-', small: true },
+  // Special
+  { key: 'specialRequests', label: 'Richieste Speciali', group: 'Extra', default: false, render: g => g.specialRequests ? g.specialRequests.substring(0, 40) + (g.specialRequests.length > 40 ? '...' : '') : '-', small: true },
+  { key: 'notes', label: 'Note', group: 'Extra', default: false, render: g => g.notes ? g.notes.substring(0, 40) + (g.notes.length > 40 ? '...' : '') : '-', small: true },
+  { key: 'bio', label: 'Bio', group: 'Extra', default: false, render: g => g.bio ? g.bio.substring(0, 40) + (g.bio.length > 40 ? '...' : '') : '-', small: true },
+  { key: 'whatsapp', label: 'WhatsApp', group: 'Extra', default: false, render: g => g.whatsappOptIn ? '✅' : '—' },
+  // Assistant
+  { key: 'assistantName', label: 'Assistente', group: 'Contatti', default: false, render: g => g.assistantName || '-' },
+  { key: 'assistantEmail', label: 'Email Assist.', group: 'Contatti', default: false, render: g => g.assistantEmail || '-', small: true },
+  { key: 'assistantPhone', label: 'Tel. Assist.', group: 'Contatti', default: false, render: g => g.assistantPhone || '-', small: true },
+  // Emergency
+  { key: 'emergencyName', label: 'Emergenza', group: 'Contatti', default: false, render: g => g.emergencyName || '-' },
+  { key: 'emergencyPhone', label: 'Tel. Emergenza', group: 'Contatti', default: false, render: g => g.emergencyPhone || '-', small: true },
+  // Consent
+  { key: 'privacyConsent', label: 'Privacy', group: 'Consensi', default: false, render: g => g.privacyConsent ? '✅' : '❌' },
+  { key: 'imageRights', label: 'Dir. Immagine', group: 'Consensi', default: false, render: g => g.imageRightsConsent ? '✅' : '❌' },
+  { key: 'liability', label: 'Responsabilità', group: 'Consensi', default: false, render: g => g.liabilityConsent ? '✅' : '❌' },
+  { key: 'cancellation', label: 'Cancellazione', group: 'Consensi', default: false, render: g => g.cancellationConsent ? '✅' : '❌' },
+  { key: 'insurance', label: 'Assicurazione', group: 'Consensi', default: false, render: g => g.insuranceConsent ? '✅' : '❌' },
+];
+
+const DEFAULT_COLS = ALL_COLUMNS.filter(c => c.default).map(c => c.key);
+const GROUPS = [...new Set(ALL_COLUMNS.map(c => c.group))];
+
+function ColumnPicker({ visible, onClose, activeCols, setActiveCols }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [visible, onClose]);
+
+  if (!visible) return null;
+
+  const toggleCol = (key) => {
+    setActiveCols(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+  const toggleGroup = (group) => {
+    const groupKeys = ALL_COLUMNS.filter(c => c.group === group).map(c => c.key);
+    const allOn = groupKeys.every(k => activeCols.includes(k));
+    if (allOn) setActiveCols(prev => prev.filter(k => !groupKeys.includes(k)));
+    else setActiveCols(prev => [...new Set([...prev, ...groupKeys])]);
+  };
+
+  return (
+    <div ref={ref} style={{
+      position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 100,
+      background: '#fff', border: '1px solid var(--border)', borderRadius: 8,
+      boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 12,
+      width: 340, maxHeight: 420, overflowY: 'auto'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>Colonne visibili</span>
+        <button className="btn btn-sm" onClick={() => setActiveCols(DEFAULT_COLS)} style={{ fontSize: 11 }}>Reset default</button>
+      </div>
+      {GROUPS.map(group => {
+        const groupCols = ALL_COLUMNS.filter(c => c.group === group);
+        const allOn = groupCols.every(c => activeCols.includes(c.key));
+        const someOn = groupCols.some(c => activeCols.includes(c.key));
+        return (
+          <div key={group} style={{ marginBottom: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: 600, fontSize: 12, color: 'var(--primary)', padding: '4px 0' }}>
+              <input type="checkbox" checked={allOn} ref={el => { if (el) el.indeterminate = someOn && !allOn; }} onChange={() => toggleGroup(group)} />
+              {group}
+            </label>
+            <div style={{ paddingLeft: 16 }}>
+              {groupCols.map(col => (
+                <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, padding: '2px 0' }}>
+                  <input type="checkbox" checked={activeCols.includes(col.key)} onChange={() => toggleCol(col.key)} />
+                  {col.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function GuestList() {
   const token = useGuestAuth();
   const navigate = useNavigate();
   const [guests, setGuests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [view, setView] = useState('table'); // table | cards
+  const [view, setView] = useState('table');
+  const [activeCols, setActiveCols] = useState(() => {
+    try { const saved = localStorage.getItem('guestListCols'); return saved ? JSON.parse(saved) : DEFAULT_COLS; } catch { return DEFAULT_COLS; }
+  });
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  useEffect(() => { localStorage.setItem('guestListCols', JSON.stringify(activeCols)); }, [activeCols]);
 
   useEffect(() => {
     if (token) api.getGuests(token).then(setGuests).catch(() => navigate('/guests/login')).finally(() => setLoading(false));
@@ -29,6 +153,8 @@ export default function GuestList() {
   const totalPeople = guests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
   const totalRooms = guests.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0);
   const withFlights = guests.filter(g => g.flights?.some(f => f.direction === 'ARRIVAL')).length;
+
+  const columns = ALL_COLUMNS.filter(c => activeCols.includes(c.key));
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
@@ -49,12 +175,20 @@ export default function GuestList() {
         <div className="stat-card"><div className="stat-label">Con volo</div><div className="stat-value">{withFlights}/{guests.length}</div></div>
       </div>
 
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <input className="form-input" placeholder="Cerca ospite..." value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: 300 }} />
         <div className="view-tabs">
           <button className={`view-tab${view === 'table' ? ' active' : ''}`} onClick={() => setView('table')}>Tabella</button>
           <button className={`view-tab${view === 'cards' ? ' active' : ''}`} onClick={() => setView('cards')}>Schede</button>
         </div>
+        {view === 'table' && (
+          <div style={{ position: 'relative', marginLeft: 'auto' }}>
+            <button className="btn btn-sm" onClick={() => setPickerOpen(!pickerOpen)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              ⚙️ Colonne ({activeCols.length})
+            </button>
+            <ColumnPicker visible={pickerOpen} onClose={() => setPickerOpen(false)} activeCols={activeCols} setActiveCols={setActiveCols} />
+          </div>
+        )}
       </div>
 
       {filtered.length === 0 ? (
@@ -64,25 +198,18 @@ export default function GuestList() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Ospite</th><th>Accompagnatori</th><th>Persone</th><th>Volo Arrivo</th><th>Arrivo</th><th>Hotel</th><th>Check-in</th><th>Dieta</th></tr>
+                <tr>{columns.map(col => <th key={col.key}>{col.label}</th>)}</tr>
               </thead>
               <tbody>
-                {filtered.map(g => {
-                  const arrFlight = g.flights?.find(f => f.direction === 'ARRIVAL');
-                  const compCount = g.companions?.length || 0;
-                  return (
-                    <tr key={g.id} className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
-                      <td style={{ fontWeight: 600 }}>{g.firstName} {g.lastName}</td>
-                      <td style={{ fontSize: 12 }}>{g.companions?.map(c => c.fullName).join(', ') || '-'}</td>
-                      <td>{1 + compCount}</td>
-                      <td style={{ fontSize: 12 }}>{arrFlight ? `${arrFlight.airline || ''} ${arrFlight.flightNumber || ''}`.trim() || '-' : '-'}</td>
-                      <td style={{ fontSize: 12 }}>{arrFlight?.arrivalDay ? formatDate(arrFlight.arrivalDay) : arrFlight?.date ? formatDate(arrFlight.date) : '-'}{arrFlight?.arrivalTime ? ` ${arrFlight.arrivalTime}` : ''}</td>
-                      <td style={{ fontSize: 12 }}>{g.roomType || '-'}</td>
-                      <td style={{ fontSize: 12 }}>{g.checkInDate ? formatDate(g.checkInDate) : '-'}</td>
-                      <td style={{ fontSize: 11 }}>{g.dietaryRestrictions && g.dietaryRestrictions.toLowerCase() !== 'none' ? g.dietaryRestrictions.substring(0, 30) + (g.dietaryRestrictions.length > 30 ? '...' : '') : '-'}</td>
-                    </tr>
-                  );
-                })}
+                {filtered.map(g => (
+                  <tr key={g.id} className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
+                    {columns.map(col => (
+                      <td key={col.key} style={{ fontWeight: col.bold ? 600 : 400, fontSize: col.small ? 12 : undefined }}>
+                        {col.render(g)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

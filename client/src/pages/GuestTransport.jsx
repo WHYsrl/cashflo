@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../utils/api.js';
+import { formatDate } from '../utils/format.js';
 
 export default function GuestTransport() {
   const navigate = useNavigate();
@@ -12,16 +13,16 @@ export default function GuestTransport() {
   const [generating, setGenerating] = useState(false);
   const [language, setLanguage] = useState('en');
   const [copied, setCopied] = useState(false);
+  const [view, setView] = useState('report');
+  const [flightCheck, setFlightCheck] = useState('');
+  const [flightLoading, setFlightLoading] = useState(false);
 
   useEffect(() => { if (!token) navigate('/guests/login'); }, [token]);
   useEffect(() => {
     if (token) api.getGuests(token).then(g => { setGuests(g); setSelected(g.map(x => x.id)); }).catch(() => navigate('/guests/login')).finally(() => setLoading(false));
   }, [token]);
 
-  const toggleAll = () => {
-    if (selected.length === guests.length) setSelected([]);
-    else setSelected(guests.map(g => g.id));
-  };
+  const toggleAll = () => selected.length === guests.length ? setSelected([]) : setSelected(guests.map(g => g.id));
   const toggle = (id) => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const generate = async () => {
@@ -29,6 +30,7 @@ export default function GuestTransport() {
     try {
       const result = await api.generateTransportEmail(selected, language, token);
       setEmail(result.email);
+      setView('email');
     } catch (e) { alert(e.message); }
     setGenerating(false);
   };
@@ -39,61 +41,217 @@ export default function GuestTransport() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const checkFlights = async () => {
+    setFlightLoading(true);
+    try {
+      const result = await api.checkFlights(language, token);
+      setFlightCheck(result.flightCheck);
+    } catch (e) { alert(e.message); }
+    setFlightLoading(false);
+  };
+
+  const renderMarkdown = (text) => {
+    return text.split('\n').map((line, i) => {
+      if (line.startsWith('# ')) return <h2 key={i} style={{ marginTop: 16, marginBottom: 8, fontSize: 18 }}>{line.slice(2)}</h2>;
+      if (line.startsWith('## ')) return <h3 key={i} style={{ marginTop: 12, marginBottom: 6, color: 'var(--primary)', fontSize: 16 }}>{line.slice(3)}</h3>;
+      if (line.startsWith('### ')) return <h4 key={i} style={{ marginTop: 8, marginBottom: 4, fontSize: 14 }}>{line.slice(4)}</h4>;
+      if (line.startsWith('- ') || line.startsWith('• ')) return <div key={i} style={{ paddingLeft: 16, marginBottom: 2, fontSize: 13 }}>• {line.slice(2)}</div>;
+      if (line.startsWith('───') || line.startsWith('═══')) return <hr key={i} style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '8px 0' }} />;
+      if (line.trim() === '') return <br key={i} />;
+      const formatted = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      return <div key={i} dangerouslySetInnerHTML={{ __html: formatted }} style={{ marginBottom: 2, fontSize: 13 }} />;
+    });
+  };
+
+  const selectedGuests = useMemo(() => guests.filter(g => selected.includes(g.id)), [guests, selected]);
+  const totalPeople = useMemo(() => selectedGuests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0), [selectedGuests]);
+  const withMobility = useMemo(() => selectedGuests.filter(g => g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim())), [selectedGuests]);
+
+  const arrivalsByDay = useMemo(() => {
+    const map = {};
+    selectedGuests.forEach(g => {
+      const arr = g.flights?.find(f => f.direction === 'ARRIVAL');
+      if (!arr) return;
+      const day = arr.arrivalDay || arr.date || 'TBD';
+      if (!map[day]) map[day] = [];
+      map[day].push({ guest: g, flight: arr });
+    });
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+  }, [selectedGuests]);
+
+  // Group by hour for transfer opportunities
+  const transferGroups = useMemo(() => {
+    const timeMap = {};
+    selectedGuests.forEach(g => {
+      const arr = g.flights?.find(f => f.direction === 'ARRIVAL');
+      if (!arr?.arrivalTime) return;
+      const day = arr.arrivalDay || arr.date || 'TBD';
+      const hour = arr.arrivalTime.split(':')[0] || arr.arrivalTime.substring(0, 2);
+      const key = `${day}_${hour}`;
+      if (!timeMap[key]) timeMap[key] = { day, hour: `${hour}:00`, guests: [] };
+      timeMap[key].guests.push({ guest: g, flight: arr });
+    });
+    return Object.values(timeMap).filter(g => g.guests.length >= 2).sort((a, b) => a.day.localeCompare(b.day));
+  }, [selectedGuests]);
+
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
   return (
     <div>
-      <h1 className="page-title">Transportation — Email Generator</h1>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: 16, fontSize: 14 }}>
-        Seleziona gli ospiti e genera un testo email per la società di trasporto aeroporto → hotel.
-      </p>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={selected.length === guests.length} onChange={toggleAll} />
-              <strong>{selected.length}/{guests.length} ospiti selezionati</strong>
-            </label>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <h1 className="page-title" style={{ margin: 0 }}>🚐 Transportation</h1>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="view-tabs">
+            <button className={`view-tab${view === 'report' ? ' active' : ''}`} onClick={() => setView('report')}>📊 Report</button>
+            <button className={`view-tab${view === 'email' ? ' active' : ''}`} onClick={() => setView('email')}>✉️ Email</button>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <select className="form-select" style={{ width: 'auto' }} value={language} onChange={e => setLanguage(e.target.value)}>
-              <option value="en">English</option>
-              <option value="it">Italiano</option>
-            </select>
-            <button className="btn btn-primary" onClick={generate} disabled={generating || selected.length === 0}>
-              {generating ? '⏳ Generazione...' : '🚐 Genera Email'}
-            </button>
-          </div>
+          <select className="form-select" style={{ width: 'auto' }} value={language} onChange={e => setLanguage(e.target.value)}>
+            <option value="en">English</option>
+            <option value="it">Italiano</option>
+          </select>
+          <button className="btn" onClick={checkFlights} disabled={flightLoading} style={{ whiteSpace: 'nowrap' }}>
+            {flightLoading ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2, display: 'inline-block', marginRight: 6 }} /> Controllo...</> : '✈️ Controllo Voli'}
+          </button>
+          <button className="btn btn-primary" onClick={generate} disabled={generating || selected.length === 0}>
+            {generating ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2, display: 'inline-block', marginRight: 6 }} /> Generazione...</> : '🚐 Genera Email'}
+          </button>
         </div>
+      </div>
 
-        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+      {/* Guest selector */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={selected.length === guests.length} onChange={toggleAll} />
+            <strong>{selected.length}/{guests.length} ospiti selezionati</strong>
+          </label>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{totalPeople} persone totali</span>
+        </div>
+        <div style={{ maxHeight: 200, overflowY: 'auto' }}>
           {guests.map(g => {
             const arrFlight = g.flights?.find(f => f.direction === 'ARRIVAL');
             return (
-              <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer', fontSize: 14 }}>
+              <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer', fontSize: 13 }}>
                 <input type="checkbox" checked={selected.includes(g.id)} onChange={() => toggle(g.id)} />
-                <span style={{ fontWeight: 500, minWidth: 160 }}>{g.firstName} {g.lastName}</span>
+                <span style={{ fontWeight: 500, minWidth: 150 }}>{g.firstName} {g.lastName}</span>
                 <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
                   {arrFlight ? `${arrFlight.airline || ''} ${arrFlight.flightNumber || ''} — ${arrFlight.arrivalTime || ''}` : 'No flight'}
                 </span>
                 {g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--primary)' }}>+{g.companions.length}</span>}
-                {g.mobilityNeeds && g.mobilityNeeds.toLowerCase() !== 'none' && <span style={{ fontSize: 11, color: 'var(--danger)' }}>♿</span>}
+                {g.mobilityNeeds && !['none','n/a','no'].includes((g.mobilityNeeds||'').toLowerCase().trim()) && <span style={{ fontSize: 11, color: 'var(--danger)' }}>♿</span>}
               </label>
             );
           })}
         </div>
       </div>
 
-      {email && (
+      {/* ── REPORT VIEW ── */}
+      {view === 'report' && selectedGuests.length > 0 && (
+        <div>
+          <div className="stats-grid" style={{ marginBottom: 16 }}>
+            <div className="stat-card"><div className="stat-label">Ospiti</div><div className="stat-value">{selectedGuests.length}</div></div>
+            <div className="stat-card"><div className="stat-label">Persone</div><div className="stat-value">{totalPeople}</div></div>
+            <div className="stat-card"><div className="stat-label">Giorni trasferimento</div><div className="stat-value">{arrivalsByDay.length}</div></div>
+            <div className="stat-card"><div className="stat-label">Esigenze mobilità</div><div className="stat-value" style={{ color: withMobility.length > 0 ? 'var(--danger)' : undefined }}>{withMobility.length}</div></div>
+          </div>
+
+          {/* Mobility alerts */}
+          {withMobility.length > 0 && (
+            <div className="card" style={{ marginBottom: 12, borderLeft: '4px solid var(--danger)' }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>♿ Esigenze mobilità</div>
+              {withMobility.map(g => (
+                <div key={g.id} style={{ fontSize: 13, padding: '3px 0', cursor: 'pointer', color: 'var(--primary)' }} onClick={() => navigate(`/guests/${g.id}`)}>
+                  ★ {g.firstName} {g.lastName}: <span style={{ color: 'var(--danger)' }}>{g.mobilityNeeds}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Transfer grouping opportunities */}
+          {transferGroups.length > 0 && (
+            <div className="card" style={{ marginBottom: 12, borderLeft: '4px solid var(--success)' }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>🚐 Raggruppamento trasferimenti possibili</div>
+              {transferGroups.map((group, i) => (
+                <div key={i} style={{ marginBottom: 8, padding: 8, background: '#f0fdf4', borderRadius: 4 }}>
+                  <div style={{ fontWeight: 500, fontSize: 13 }}>📅 {formatDate(group.day)} — fascia {group.hour} ({group.guests.reduce((s, { guest: g }) => s + 1 + (g.companions?.length || 0), 0)} persone)</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', paddingLeft: 8, marginTop: 4 }}>
+                    {group.guests.map(({ guest: g, flight: f }) => `${g.firstName} ${g.lastName} (${f.arrivalTime})`).join(' • ')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Arrivals by day - detailed table */}
+          {arrivalsByDay.map(([day, entries]) => (
+            <div key={day} className="card" style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
+                <span>📅 {day === 'TBD' ? 'Data da confermare' : formatDate(day)}</span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entries.reduce((s, e) => s + 1 + (e.guest.companions?.length || 0), 0)} persone</span>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Partecipante</th><th>Pax</th><th>Volo</th><th>Arrivo</th><th>Tratta</th><th>Destinazione</th><th>Note</th></tr></thead>
+                  <tbody>
+                    {entries.sort((a, b) => (a.flight?.arrivalTime || '').localeCompare(b.flight?.arrivalTime || '')).map(({ guest: g, flight: f }) => (
+                      <React.Fragment key={g.id}>
+                        <tr className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
+                          <td style={{ fontWeight: 600 }}>★ {g.firstName} {g.lastName}</td>
+                          <td style={{ textAlign: 'center' }}>{1 + (g.companions?.length || 0)}</td>
+                          <td style={{ fontSize: 12 }}>{f.airline} {f.flightNumber || '-'}</td>
+                          <td style={{ fontWeight: 600 }}>{f.arrivalTime || '-'}</td>
+                          <td style={{ fontSize: 12 }}>{f.departureAirport || '?'} → {f.arrivalAirport || '?'}</td>
+                          <td style={{ fontSize: 12 }}>{g.roomType || '-'}</td>
+                          <td style={{ fontSize: 11 }}>
+                            {g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim()) && <span style={{ color: 'var(--danger)' }}>♿ {g.mobilityNeeds}</span>}
+                          </td>
+                        </tr>
+                        {g.companions?.map((c, i) => (
+                          <tr key={`${g.id}-c${i}`} style={{ background: '#f8fafc' }}>
+                            <td style={{ paddingLeft: 24, fontSize: 12, color: 'var(--text-secondary)' }}>👤 {c.fullName}</td>
+                            <td colSpan={6} style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{c.relationship || 'Accompagnatore'}</td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Flight Check Results ── */}
+      {(flightCheck || flightLoading) && view === 'report' && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="card-header"><div className="card-title">✈️ Controllo Voli</div></div>
+          {flightLoading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '30px 20px', gap: 12 }}>
+              <div className="spinner" style={{ width: 30, height: 30, borderWidth: 3 }} />
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Analisi voli in corso...</div>
+            </div>
+          ) : (
+            <div style={{ lineHeight: 1.6, padding: 16, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, maxHeight: 500, overflowY: 'auto' }}>
+              {renderMarkdown(flightCheck)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── EMAIL VIEW ── */}
+      {view === 'email' && email && (
         <div className="card">
           <div className="card-header">
             <div className="card-title">Email generata</div>
-            <button className="btn btn-sm btn-primary" onClick={copyToClipboard}>
-              {copied ? '✅ Copiato!' : '📋 Copia'}
-            </button>
+            <button className="btn btn-sm btn-primary" onClick={copyToClipboard}>{copied ? '✅ Copiato!' : '📋 Copia'}</button>
           </div>
           <pre className="whatsapp-output" style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 13, lineHeight: 1.6, background: '#f8fafc', padding: 16, borderRadius: 8, maxHeight: 600, overflowY: 'auto' }}>{email}</pre>
+        </div>
+      )}
+      {view === 'email' && !email && (
+        <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
+          Premi "Genera Email" per creare il testo da inviare alla società di trasporto.
         </div>
       )}
     </div>
