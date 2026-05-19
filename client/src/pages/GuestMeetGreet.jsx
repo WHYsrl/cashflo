@@ -79,37 +79,37 @@ export default function GuestMeetGreet() {
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
   }, [selectedGuests]);
 
-  // Build map: companion fullName → main guest who has an arrival flight
-  const companionToMain = useMemo(() => {
-    const map = {};
-    selectedGuests.forEach(g => {
-      const hasArrival = g.flights?.some(f => f.direction === 'ARRIVAL');
-      if (hasArrival && g.companions?.length) {
-        for (const c of g.companions) {
-          const key = (c.fullName || '').trim().toLowerCase();
-          if (key) map[key] = g;
-        }
-      }
-    });
-    return map;
-  }, [selectedGuests]);
+  // Robust companion→main guest matching using normalized names
+  const normalize = (s) => (s||'').toLowerCase().replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
 
+  const guestsWithFlight = useMemo(() => selectedGuests.filter(g => g.flights?.some(f => f.direction === 'ARRIVAL')), [selectedGuests]);
   const guestsWithoutFlight = useMemo(() => selectedGuests.filter(g => !g.flights?.some(f => f.direction === 'ARRIVAL')), [selectedGuests]);
 
   // Split: truly missing vs. traveling with main guest
   const { noFlight, travelingWith } = useMemo(() => {
     const no = [], tw = [];
     for (const g of guestsWithoutFlight) {
-      const nameKey = `${g.firstName} ${g.lastName}`.trim().toLowerCase();
-      const main = companionToMain[nameKey];
-      if (main) {
-        tw.push({ guest: g, mainGuest: main });
+      const gLastNorm = normalize(g.lastName);
+      const gFullNorm = normalize(g.firstName + ' ' + g.lastName);
+      let found = null;
+      for (const m of guestsWithFlight) {
+        if (m.id === g.id || !m.companions?.length) continue;
+        // Strategy 1: same last name
+        if (normalize(m.lastName) === gLastNorm) { found = m; break; }
+        // Strategy 2: companion fullName contains guest's full name
+        for (const c of m.companions) {
+          if (normalize(c.fullName).includes(gFullNorm)) { found = m; break; }
+        }
+        if (found) break;
+      }
+      if (found) {
+        tw.push({ guest: g, mainGuest: found });
       } else {
         no.push(g);
       }
     }
     return { noFlight: no, travelingWith: tw };
-  }, [guestsWithoutFlight, companionToMain]);
+  }, [guestsWithoutFlight, guestsWithFlight]);
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
@@ -126,6 +126,7 @@ export default function GuestMeetGreet() {
             <option value="en">English</option>
             <option value="it">Italiano</option>
           </select>
+          <a href={api.exportMeetGreetUrl(token)} className="btn" style={{ textDecoration: 'none', whiteSpace: 'nowrap' }}>📥 Excel</a>
           <button className="btn" onClick={checkFlights} disabled={flightLoading} style={{ whiteSpace: 'nowrap' }}>
             {flightLoading ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2, display: 'inline-block', marginRight: 6 }} /> Controllo...</> : '✈️ Controllo Voli'}
           </button>

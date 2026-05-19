@@ -73,5 +73,6 @@ export const api = {
   checkFlights: (language, token) => request('/guests/flight-check', { method: 'POST', body: JSON.stringify({ language }), headers: { 'x-guest-auth': token } }),
   exportGuestsUrl: (token) => `${BASE}/guests/export?token=${encodeURIComponent(token)}`,
   exportTransportUrl: (token) => `${BASE}/guests/export-transport?token=${encodeURIComponent(token)}`,
+  exportMeetGreetUrl: (token) => `${BASE}/guests/export-meet-greet?token=${encodeURIComponent(token)}`,
   bulkUpdateGuests: (formData, token) => fetch(`${BASE}/guests/import/bulk-update`, { method: 'POST', body: formData, headers: { 'x-guest-auth': token } }).then(r => r.json()),
 };

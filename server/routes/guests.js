@@ -163,20 +163,21 @@ router.get('/export-transport', async (req, res) => {
     // Exclude guests that don't need transfer
     const guests = allGuests.filter(g => !g.noTransfer);
 
-    // Build companion→main guest map for "traveling with" detection
-    const companionToMain = {};
-    for (const g of guests) {
-      const hasArrival = g.flights?.some(f => f.direction === 'ARRIVAL');
-      const hasDeparture = g.flights?.some(f => f.direction === 'DEPARTURE');
-      if (g.companions?.length) {
-        for (const c of g.companions) {
-          const key = (c.fullName || '').trim().toLowerCase();
-          if (key) {
-            if (hasArrival) companionToMain[`arr_${key}`] = g;
-            if (hasDeparture) companionToMain[`dep_${key}`] = g;
-          }
+    // Robust companion→main guest matching using normalized names
+    const _norm = s => (s||'').toLowerCase().replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
+    const guestsWithArr = guests.filter(g => g.flights?.some(f => f.direction === 'ARRIVAL'));
+    const guestsWithDep = guests.filter(g => g.flights?.some(f => f.direction === 'DEPARTURE'));
+    function findMainForDir(g, pool) {
+      const gLastNorm = _norm(g.lastName);
+      const gFullNorm = _norm(g.firstName + ' ' + g.lastName);
+      for (const m of pool) {
+        if (m.id === g.id || !m.companions?.length) continue;
+        if (_norm(m.lastName) === gLastNorm) return m;
+        for (const c of m.companions) {
+          if (_norm(c.fullName).includes(gFullNorm)) return m;
         }
       }
+      return null;
     }
 
     // ── Build rows ──
@@ -203,8 +204,7 @@ router.get('/export-transport', async (req, res) => {
           ...baseRow, 'Hotel': g.roomType || '',
         });
       } else {
-        const nameKey = `${g.firstName} ${g.lastName}`.trim().toLowerCase();
-        const mainArr = companionToMain[`arr_${nameKey}`];
+        const mainArr = findMainForDir(g, guestsWithArr);
         if (mainArr) {
           const mf = mainArr.flights?.find(f => f.direction === 'ARRIVAL');
           const day = mf?.arrivalDay ? new Date(mf.arrivalDay).toISOString().split('T')[0] : mf?.date ? new Date(mf.date).toISOString().split('T')[0] : 'TBD';
@@ -229,8 +229,7 @@ router.get('/export-transport', async (req, res) => {
           ...baseRow, 'Hotel': g.roomType || '',
         });
       } else {
-        const nameKey = `${g.firstName} ${g.lastName}`.trim().toLowerCase();
-        const mainDep = companionToMain[`dep_${nameKey}`];
+        const mainDep = findMainForDir(g, guestsWithDep);
         if (mainDep) {
           const mf = mainDep.flights?.find(f => f.direction === 'DEPARTURE');
           const day = mf?.date ? new Date(mf.date).toISOString().split('T')[0] : mf?.arrivalDay ? new Date(mf.arrivalDay).toISOString().split('T')[0] : 'TBD';
@@ -361,6 +360,139 @@ router.get('/export-transport', async (req, res) => {
 
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
     const fileName = `trasporti_${new Date().toISOString().split('T')[0]}.xlsx`;
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.document');
+    res.send(Buffer.from(buf));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET export Meet & Greet Excel (must be before /:id)
+router.get('/export-meet-greet', async (req, res) => {
+  try {
+    const XLSX = (await import('xlsx')).default;
+    const allGuests = await prisma.guest.findMany({
+      include: { companions: true, flights: true },
+      orderBy: { lastName: 'asc' }
+    });
+
+    // Robust companion→main guest matching
+    const _norm = s => (s||'').toLowerCase().replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
+    const guestsWithArr = allGuests.filter(g => g.flights?.some(f => f.direction === 'ARRIVAL'));
+    function findMainGuest(g) {
+      const gLastNorm = _norm(g.lastName);
+      const gFullNorm = _norm(g.firstName + ' ' + g.lastName);
+      for (const m of guestsWithArr) {
+        if (m.id === g.id || !m.companions?.length) continue;
+        if (_norm(m.lastName) === gLastNorm) return m;
+        for (const c of m.companions) {
+          if (_norm(c.fullName).includes(gFullNorm)) return m;
+        }
+      }
+      return null;
+    }
+
+    // ── Build arrival rows by day ──
+    const arrivalRows = [];
+    const travelingWithRows = [];
+    const noFlightRows = [];
+
+    for (const g of allGuests) {
+      const arr = g.flights?.find(f => f.direction === 'ARRIVAL');
+      const mobility = g.mobilityNeeds && !['none','n/a','no'].includes((g.mobilityNeeds||'').toLowerCase().trim()) ? g.mobilityNeeds : '';
+      if (arr) {
+        const day = arr.arrivalDay ? new Date(arr.arrivalDay).toISOString().split('T')[0] : arr.date ? new Date(arr.date).toISOString().split('T')[0] : 'TBD';
+        arrivalRows.push({
+          'Data Arrivo': day,
+          'Orario': arr.arrivalTime || '',
+          'Compagnia': arr.airline || '',
+          'N. Volo': arr.flightNumber || '',
+          'Da': arr.departureAirport || '',
+          'A': arr.arrivalAirport || '',
+          'Ospite': `${g.firstName} ${g.lastName}`,
+          'Esigenze Mobilità': mobility,
+          'Note': g.specialRequests || '',
+        });
+      } else {
+        const main = findMainGuest(g);
+        if (main) {
+          const mf = main.flights?.find(f => f.direction === 'ARRIVAL');
+          travelingWithRows.push({
+            'Ospite': `${g.firstName} ${g.lastName}`,
+            'Viaggia con': `${main.firstName} ${main.lastName}`,
+            'Volo': mf ? `${mf.airline || ''} ${mf.flightNumber || ''}`.trim() : '',
+            'Data Arrivo': mf?.arrivalDay ? new Date(mf.arrivalDay).toISOString().split('T')[0] : mf?.date ? new Date(mf.date).toISOString().split('T')[0] : 'TBD',
+            'Orario': mf?.arrivalTime || '',
+            'Esigenze Mobilità': mobility,
+          });
+        } else {
+          noFlightRows.push({
+            'Ospite': `${g.firstName} ${g.lastName}`,
+            'Esigenze Mobilità': mobility,
+            'Note': g.specialRequests || '',
+          });
+        }
+      }
+    }
+
+    arrivalRows.sort((a, b) => a['Data Arrivo'].localeCompare(b['Data Arrivo']) || a['Orario'].localeCompare(b['Orario']));
+
+    const wb = XLSX.utils.book_new();
+
+    // ── Summary sheet ──
+    const summaryByDay = {};
+    for (const r of arrivalRows) {
+      const key = r['Data Arrivo'];
+      if (!summaryByDay[key]) summaryByDay[key] = { persone: 0, voli: new Set() };
+      summaryByDay[key].persone += 1;
+      if (r['N. Volo']) summaryByDay[key].voli.add(`${r['Compagnia']} ${r['N. Volo']}`.trim());
+    }
+    const sumRows = Object.entries(summaryByDay).sort(([a],[b]) => a.localeCompare(b)).map(([day, d]) => ({
+      'Data': day, 'N. Persone': d.persone, 'Voli': [...d.voli].join(', '),
+    }));
+    if (travelingWithRows.length > 0) sumRows.push({ 'Data': '👥 Con ospite princ.', 'N. Persone': travelingWithRows.length, 'Voli': '' });
+    if (noFlightRows.length > 0) sumRows.push({ 'Data': '⚠️ Senza volo', 'N. Persone': noFlightRows.length, 'Voli': '' });
+    sumRows.push({ 'Data': 'TOTALE', 'N. Persone': allGuests.length, 'Voli': '' });
+
+    if (sumRows.length > 0) {
+      const wsSummary = XLSX.utils.json_to_sheet(sumRows);
+      wsSummary['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 40 }];
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Riepilogo');
+    }
+
+    // ── Detail arrivals sheet ──
+    if (arrivalRows.length > 0) {
+      const wsArr = XLSX.utils.json_to_sheet(arrivalRows);
+      const cols = Object.keys(arrivalRows[0]);
+      wsArr['!cols'] = cols.map(key => ({
+        wch: Math.max(key.length, ...arrivalRows.map(r => String(r[key] || '').length).slice(0, 30)) + 2
+      }));
+      XLSX.utils.book_append_sheet(wb, wsArr, 'Arrivi');
+    }
+
+    // ── Traveling with sheet ──
+    if (travelingWithRows.length > 0) {
+      const wsTw = XLSX.utils.json_to_sheet(travelingWithRows);
+      const cols = Object.keys(travelingWithRows[0]);
+      wsTw['!cols'] = cols.map(key => ({
+        wch: Math.max(key.length, ...travelingWithRows.map(r => String(r[key] || '').length).slice(0, 30)) + 2
+      }));
+      XLSX.utils.book_append_sheet(wb, wsTw, 'Viaggiano con');
+    }
+
+    // ── No flight sheet ──
+    if (noFlightRows.length > 0) {
+      const wsNo = XLSX.utils.json_to_sheet(noFlightRows);
+      const cols = Object.keys(noFlightRows[0]);
+      wsNo['!cols'] = cols.map(key => ({
+        wch: Math.max(key.length, ...noFlightRows.map(r => String(r[key] || '').length).slice(0, 30)) + 2
+      }));
+      XLSX.utils.book_append_sheet(wb, wsNo, 'Senza Volo');
+    }
+
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const fileName = `meet_greet_${new Date().toISOString().split('T')[0]}.xlsx`;
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.document');
     res.send(Buffer.from(buf));
@@ -1083,16 +1215,20 @@ router.post('/email/meet-greet', async (req, res) => {
     const sortedDates = Object.keys(byDate).sort();
     const totalPeople = guests.length;
 
-    // Build companion→main guest map for "traveling with" detection
-    const companionToMain = {};
-    for (const g of guests) {
-      const hasArrival = g.flights?.some(f => f.direction === 'ARRIVAL');
-      if (hasArrival && g.companions?.length) {
-        for (const c of g.companions) {
-          const key = (c.fullName || '').trim().toLowerCase();
-          if (key) companionToMain[key] = g;
+    // Robust companion→main guest matching using normalized names
+    const _norm = s => (s||'').toLowerCase().replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
+    const guestsWithFlight = guests.filter(g => g.flights?.some(f => f.direction === 'ARRIVAL'));
+    function findMainGuest(g) {
+      const gLastNorm = _norm(g.lastName);
+      const gFullNorm = _norm(g.firstName + ' ' + g.lastName);
+      for (const m of guestsWithFlight) {
+        if (m.id === g.id || !m.companions?.length) continue;
+        if (_norm(m.lastName) === gLastNorm) return m;
+        for (const c of m.companions) {
+          if (_norm(c.fullName).includes(gFullNorm)) return m;
         }
       }
+      return null;
     }
 
     let t = it
@@ -1113,8 +1249,7 @@ router.post('/email/meet-greet', async (req, res) => {
           if (flight.arrivalTime) t += ` — ${it ? 'arrivo' : 'arrival'} ${flight.arrivalTime}`;
           t += `\n`;
         } else {
-          const nameKey = `${guest.firstName} ${guest.lastName}`.trim().toLowerCase();
-          const mainGuest = companionToMain[nameKey];
+          const mainGuest = findMainGuest(guest);
           if (mainGuest) {
             const mainFlight = mainGuest.flights?.find(f => f.direction === 'ARRIVAL');
             t += `   👥 ${it ? 'Viaggia con' : 'Traveling with'} ${mainGuest.firstName} ${mainGuest.lastName}`;
@@ -1136,8 +1271,7 @@ router.post('/email/meet-greet', async (req, res) => {
     for (const date of sortedDates) {
       const dl = date === 'TBD' ? 'TBD' : date;
       for (const { guest, flight } of byDate[date]) {
-        const nameKey = `${guest.firstName} ${guest.lastName}`.trim().toLowerCase();
-        const mainGuest = !flight ? companionToMain[nameKey] : null;
+        const mainGuest = !flight ? findMainGuest(guest) : null;
         const flightCol = flight
           ? `${flight.airline||''} ${flight.flightNumber||''}`.trim()
           : mainGuest ? `→ ${mainGuest.lastName}` : 'TBD';
