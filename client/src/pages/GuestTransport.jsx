@@ -16,6 +16,7 @@ export default function GuestTransport() {
   const [view, setView] = useState('report');
   const [flightCheck, setFlightCheck] = useState('');
   const [flightLoading, setFlightLoading] = useState(false);
+  const [direction, setDirection] = useState('both'); // 'arrivals', 'departures', 'both'
 
   useEffect(() => { if (!token) navigate('/guests/login'); }, [token]);
   useEffect(() => {
@@ -28,7 +29,7 @@ export default function GuestTransport() {
   const generate = async () => {
     setGenerating(true);
     try {
-      const result = await api.generateTransportEmail(selected, language, token);
+      const result = await api.generateTransportEmail(selected, language, direction, token);
       setEmail(result.email);
       setView('email');
     } catch (e) { alert(e.message); }
@@ -67,7 +68,12 @@ export default function GuestTransport() {
   const totalPeople = useMemo(() => selectedGuests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0), [selectedGuests]);
   const withMobility = useMemo(() => selectedGuests.filter(g => g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim())), [selectedGuests]);
 
+  const showArrivals = direction === 'arrivals' || direction === 'both';
+  const showDepartures = direction === 'departures' || direction === 'both';
+
+  // ── ARRIVALS ──
   const arrivalsByDay = useMemo(() => {
+    if (!showArrivals) return [];
     const map = {};
     selectedGuests.forEach(g => {
       const arr = g.flights?.find(f => f.direction === 'ARRIVAL');
@@ -77,10 +83,10 @@ export default function GuestTransport() {
       map[day].push({ guest: g, flight: arr });
     });
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
-  }, [selectedGuests]);
+  }, [selectedGuests, showArrivals]);
 
-  // Group by hour for transfer opportunities
-  const transferGroups = useMemo(() => {
+  const arrivalTransferGroups = useMemo(() => {
+    if (!showArrivals) return [];
     const timeMap = {};
     selectedGuests.forEach(g => {
       const arr = g.flights?.find(f => f.direction === 'ARRIVAL');
@@ -92,15 +98,126 @@ export default function GuestTransport() {
       timeMap[key].guests.push({ guest: g, flight: arr });
     });
     return Object.values(timeMap).filter(g => g.guests.length >= 2).sort((a, b) => a.day.localeCompare(b.day));
-  }, [selectedGuests]);
+  }, [selectedGuests, showArrivals]);
+
+  // ── DEPARTURES ──
+  const departuresByDay = useMemo(() => {
+    if (!showDepartures) return [];
+    const map = {};
+    selectedGuests.forEach(g => {
+      const dep = g.flights?.find(f => f.direction === 'DEPARTURE');
+      if (!dep) return;
+      const day = dep.date || dep.arrivalDay || 'TBD';
+      if (!map[day]) map[day] = [];
+      map[day].push({ guest: g, flight: dep });
+    });
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+  }, [selectedGuests, showDepartures]);
+
+  const departureTransferGroups = useMemo(() => {
+    if (!showDepartures) return [];
+    const timeMap = {};
+    selectedGuests.forEach(g => {
+      const dep = g.flights?.find(f => f.direction === 'DEPARTURE');
+      if (!dep?.departureTime) return;
+      const day = dep.date || dep.arrivalDay || 'TBD';
+      const hour = dep.departureTime.split(':')[0] || dep.departureTime.substring(0, 2);
+      const key = `${day}_${hour}`;
+      if (!timeMap[key]) timeMap[key] = { day, hour: `${hour}:00`, guests: [] };
+      timeMap[key].guests.push({ guest: g, flight: dep });
+    });
+    return Object.values(timeMap).filter(g => g.guests.length >= 2).sort((a, b) => a.day.localeCompare(b.day));
+  }, [selectedGuests, showDepartures]);
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
+
+  const dirBtnStyle = (val) => ({
+    padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, fontWeight: 500,
+    background: direction === val ? 'var(--primary)' : 'white',
+    color: direction === val ? 'white' : 'var(--text)',
+    transition: 'all 0.15s',
+  });
+
+  // Render a transport table (used for both arrivals and departures)
+  const renderTransportTable = (entries, isArrival) => (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Partecipante</th><th>Pax</th><th>Volo</th>
+            <th>{isArrival ? 'Arrivo' : 'Partenza'}</th>
+            <th>Tratta</th>
+            <th>{isArrival ? 'Destinazione' : 'Partenza da'}</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.sort((a, b) => {
+            const timeA = isArrival ? (a.flight?.arrivalTime || '') : (a.flight?.departureTime || '');
+            const timeB = isArrival ? (b.flight?.arrivalTime || '') : (b.flight?.departureTime || '');
+            return timeA.localeCompare(timeB);
+          }).map(({ guest: g, flight: f }) => (
+            <React.Fragment key={g.id}>
+              <tr className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
+                <td style={{ fontWeight: 600 }}>★ {g.firstName} {g.lastName}</td>
+                <td style={{ textAlign: 'center' }}>{1 + (g.companions?.length || 0)}</td>
+                <td style={{ fontSize: 12 }}>{f?.airline} {f?.flightNumber || '-'}</td>
+                <td style={{ fontWeight: 600 }}>{isArrival ? (f?.arrivalTime || '-') : (f?.departureTime || '-')}</td>
+                <td style={{ fontSize: 12 }}>{f?.departureAirport || '?'} → {f?.arrivalAirport || '?'}</td>
+                <td style={{ fontSize: 12 }}>{g.roomType || '-'}</td>
+                <td style={{ fontSize: 11 }}>
+                  {g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim()) && <span style={{ color: 'var(--danger)' }}>♿ {g.mobilityNeeds}</span>}
+                </td>
+              </tr>
+              {g.companions?.map((c, i) => (
+                <tr key={`${g.id}-c${i}`} style={{ background: '#f8fafc' }}>
+                  <td style={{ paddingLeft: 24, fontSize: 12, color: 'var(--text-secondary)' }}>👤 {c.fullName}</td>
+                  <td colSpan={6} style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{c.relationship || 'Accompagnatore'}</td>
+                </tr>
+              ))}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  // Render transfer grouping card
+  const renderTransferGroups = (groups, isArrival) => {
+    if (groups.length === 0) return null;
+    return (
+      <div className="card" style={{ marginBottom: 12, borderLeft: `4px solid ${isArrival ? 'var(--success)' : '#6366f1'}` }}>
+        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
+          {isArrival ? '🚐 Raggruppamento arrivi' : '🚐 Raggruppamento ripartenze'}
+        </div>
+        {groups.map((group, i) => (
+          <div key={i} style={{ marginBottom: 8, padding: 8, background: isArrival ? '#f0fdf4' : '#eef2ff', borderRadius: 4 }}>
+            <div style={{ fontWeight: 500, fontSize: 13 }}>
+              📅 {formatDate(group.day)} — fascia {group.hour} ({group.guests.reduce((s, { guest: g }) => s + 1 + (g.companions?.length || 0), 0)} persone)
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', paddingLeft: 8, marginTop: 4 }}>
+              {group.guests.map(({ guest: g, flight: f }) => {
+                const time = isArrival ? f.arrivalTime : f.departureTime;
+                return `${g.firstName} ${g.lastName} (${time})`;
+              }).join(' • ')}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <h1 className="page-title" style={{ margin: 0 }}>🚐 Transportation</h1>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Direction filter */}
+          <div style={{ display: 'flex', gap: 0, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' }}>
+            <button style={dirBtnStyle('arrivals')} onClick={() => setDirection('arrivals')}>🛬 Arrivi</button>
+            <button style={dirBtnStyle('both')} onClick={() => setDirection('both')}>🔄 Entrambi</button>
+            <button style={dirBtnStyle('departures')} onClick={() => setDirection('departures')}>🛫 Ripartenze</button>
+          </div>
           <div className="view-tabs">
             <button className={`view-tab${view === 'report' ? ' active' : ''}`} onClick={() => setView('report')}>📊 Report</button>
             <button className={`view-tab${view === 'email' ? ' active' : ''}`} onClick={() => setView('email')}>✉️ Email</button>
@@ -130,12 +247,18 @@ export default function GuestTransport() {
         <div style={{ maxHeight: 200, overflowY: 'auto' }}>
           {guests.map(g => {
             const arrFlight = g.flights?.find(f => f.direction === 'ARRIVAL');
+            const depFlight = g.flights?.find(f => f.direction === 'DEPARTURE');
             return (
               <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer', fontSize: 13 }}>
                 <input type="checkbox" checked={selected.includes(g.id)} onChange={() => toggle(g.id)} />
                 <span style={{ fontWeight: 500, minWidth: 150 }}>{g.firstName} {g.lastName}</span>
                 <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                  {arrFlight ? `${arrFlight.airline || ''} ${arrFlight.flightNumber || ''} — ${arrFlight.arrivalTime || ''}` : 'No flight'}
+                  {showArrivals && arrFlight && <span>🛬 {arrFlight.airline || ''} {arrFlight.flightNumber || ''} {arrFlight.arrivalTime || ''}</span>}
+                  {showArrivals && showDepartures && arrFlight && depFlight && ' | '}
+                  {showDepartures && depFlight && <span>🛫 {depFlight.airline || ''} {depFlight.flightNumber || ''} {depFlight.departureTime || ''}</span>}
+                  {!arrFlight && !depFlight && 'No flights'}
+                  {showArrivals && !showDepartures && !arrFlight && 'No arrival'}
+                  {showDepartures && !showArrivals && !depFlight && 'No departure'}
                 </span>
                 {g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--primary)' }}>+{g.companions.length}</span>}
                 {g.mobilityNeeds && !['none','n/a','no'].includes((g.mobilityNeeds||'').toLowerCase().trim()) && <span style={{ fontSize: 11, color: 'var(--danger)' }}>♿</span>}
@@ -151,7 +274,8 @@ export default function GuestTransport() {
           <div className="stats-grid" style={{ marginBottom: 16 }}>
             <div className="stat-card"><div className="stat-label">Ospiti</div><div className="stat-value">{selectedGuests.length}</div></div>
             <div className="stat-card"><div className="stat-label">Persone</div><div className="stat-value">{totalPeople}</div></div>
-            <div className="stat-card"><div className="stat-label">Giorni trasferimento</div><div className="stat-value">{arrivalsByDay.length}</div></div>
+            {showArrivals && <div className="stat-card"><div className="stat-label">Giorni arrivo</div><div className="stat-value">{arrivalsByDay.length}</div></div>}
+            {showDepartures && <div className="stat-card"><div className="stat-label">Giorni ripartenza</div><div className="stat-value">{departuresByDay.length}</div></div>}
             <div className="stat-card"><div className="stat-label">Esigenze mobilità</div><div className="stat-value" style={{ color: withMobility.length > 0 ? 'var(--danger)' : undefined }}>{withMobility.length}</div></div>
           </div>
 
@@ -167,58 +291,63 @@ export default function GuestTransport() {
             </div>
           )}
 
-          {/* Transfer grouping opportunities */}
-          {transferGroups.length > 0 && (
-            <div className="card" style={{ marginBottom: 12, borderLeft: '4px solid var(--success)' }}>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>🚐 Raggruppamento trasferimenti possibili</div>
-              {transferGroups.map((group, i) => (
-                <div key={i} style={{ marginBottom: 8, padding: 8, background: '#f0fdf4', borderRadius: 4 }}>
-                  <div style={{ fontWeight: 500, fontSize: 13 }}>📅 {formatDate(group.day)} — fascia {group.hour} ({group.guests.reduce((s, { guest: g }) => s + 1 + (g.companions?.length || 0), 0)} persone)</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', paddingLeft: 8, marginTop: 4 }}>
-                    {group.guests.map(({ guest: g, flight: f }) => `${g.firstName} ${g.lastName} (${f.arrivalTime})`).join(' • ')}
+          {/* ── ARRIVALS SECTION ── */}
+          {showArrivals && (
+            <>
+              {direction === 'both' && (
+                <div style={{ fontSize: 16, fontWeight: 700, margin: '20px 0 12px', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  🛬 Arrivi — Aeroporto → Hotel
+                </div>
+              )}
+
+              {renderTransferGroups(arrivalTransferGroups, true)}
+
+              {arrivalsByDay.map(([day, entries]) => (
+                <div key={`arr-${day}`} className="card" style={{ marginBottom: 12 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>📅 {day === 'TBD' ? 'Data da confermare' : formatDate(day)}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entries.reduce((s, e) => s + 1 + (e.guest.companions?.length || 0), 0)} persone</span>
                   </div>
+                  {renderTransportTable(entries, true)}
                 </div>
               ))}
-            </div>
+
+              {arrivalsByDay.length === 0 && (
+                <div className="card" style={{ marginBottom: 12, textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}>
+                  Nessun volo di arrivo registrato per gli ospiti selezionati.
+                </div>
+              )}
+            </>
           )}
 
-          {/* Arrivals by day - detailed table */}
-          {arrivalsByDay.map(([day, entries]) => (
-            <div key={day} className="card" style={{ marginBottom: 12 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
-                <span>📅 {day === 'TBD' ? 'Data da confermare' : formatDate(day)}</span>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entries.reduce((s, e) => s + 1 + (e.guest.companions?.length || 0), 0)} persone</span>
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>Partecipante</th><th>Pax</th><th>Volo</th><th>Arrivo</th><th>Tratta</th><th>Destinazione</th><th>Note</th></tr></thead>
-                  <tbody>
-                    {entries.sort((a, b) => (a.flight?.arrivalTime || '').localeCompare(b.flight?.arrivalTime || '')).map(({ guest: g, flight: f }) => (
-                      <React.Fragment key={g.id}>
-                        <tr className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
-                          <td style={{ fontWeight: 600 }}>★ {g.firstName} {g.lastName}</td>
-                          <td style={{ textAlign: 'center' }}>{1 + (g.companions?.length || 0)}</td>
-                          <td style={{ fontSize: 12 }}>{f.airline} {f.flightNumber || '-'}</td>
-                          <td style={{ fontWeight: 600 }}>{f.arrivalTime || '-'}</td>
-                          <td style={{ fontSize: 12 }}>{f.departureAirport || '?'} → {f.arrivalAirport || '?'}</td>
-                          <td style={{ fontSize: 12 }}>{g.roomType || '-'}</td>
-                          <td style={{ fontSize: 11 }}>
-                            {g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim()) && <span style={{ color: 'var(--danger)' }}>♿ {g.mobilityNeeds}</span>}
-                          </td>
-                        </tr>
-                        {g.companions?.map((c, i) => (
-                          <tr key={`${g.id}-c${i}`} style={{ background: '#f8fafc' }}>
-                            <td style={{ paddingLeft: 24, fontSize: 12, color: 'var(--text-secondary)' }}>👤 {c.fullName}</td>
-                            <td colSpan={6} style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{c.relationship || 'Accompagnatore'}</td>
-                          </tr>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
+          {/* ── DEPARTURES SECTION ── */}
+          {showDepartures && (
+            <>
+              {direction === 'both' && (
+                <div style={{ fontSize: 16, fontWeight: 700, margin: '20px 0 12px', color: '#6366f1', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  🛫 Ripartenze — Hotel → Aeroporto
+                </div>
+              )}
+
+              {renderTransferGroups(departureTransferGroups, false)}
+
+              {departuresByDay.map(([day, entries]) => (
+                <div key={`dep-${day}`} className="card" style={{ marginBottom: 12 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>📅 {day === 'TBD' ? 'Data da confermare' : formatDate(day)}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entries.reduce((s, e) => s + 1 + (e.guest.companions?.length || 0), 0)} persone</span>
+                  </div>
+                  {renderTransportTable(entries, false)}
+                </div>
+              ))}
+
+              {departuresByDay.length === 0 && (
+                <div className="card" style={{ marginBottom: 12, textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}>
+                  Nessun volo di ripartenza registrato per gli ospiti selezionati.
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 

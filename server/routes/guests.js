@@ -728,6 +728,23 @@ function groupByArrivalDate(guests) {
   return byDate;
 }
 
+function groupByDepartureDate(guests) {
+  const byDate = {};
+  for (const g of guests) {
+    const depFlights = g.flights?.filter(f => f.direction === 'DEPARTURE') || [];
+    for (const f of depFlights) {
+      const dateKey = f.date ? new Date(f.date).toISOString().split('T')[0] : f.arrivalDay ? new Date(f.arrivalDay).toISOString().split('T')[0] : 'TBD';
+      if (!byDate[dateKey]) byDate[dateKey] = [];
+      byDate[dateKey].push({ guest: g, flight: f });
+    }
+    if (depFlights.length === 0) {
+      if (!byDate['TBD']) byDate['TBD'] = [];
+      byDate['TBD'].push({ guest: g, flight: null });
+    }
+  }
+  return byDate;
+}
+
 // ── Helper: AI translation to Italian ──
 // Translates any English content (dietary restrictions, special requests, mobility needs, etc.)
 // while preserving formatting, names, numbers, dates, emojis, and structure
@@ -916,9 +933,10 @@ router.post('/email/meet-greet', async (req, res) => {
 // ══════════════════════════════════════════
 router.post('/email/transportation', async (req, res) => {
   try {
-    const { guestIds, language } = req.body;
+    const { guestIds, language, direction } = req.body;
     const lang = language || 'en';
     const it = lang === 'it';
+    const dir = direction || 'both'; // 'arrivals', 'departures', 'both'
 
     const guests = await prisma.guest.findMany({
       where: guestIds?.length ? { id: { in: guestIds } } : {},
@@ -926,76 +944,126 @@ router.post('/email/transportation', async (req, res) => {
       orderBy: [{ lastName: 'asc' }]
     });
 
-    const byDate = groupByArrivalDate(guests);
-    const sortedDates = Object.keys(byDate).sort();
     const totalPeople = guests.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0);
+    const showArrivals = dir === 'arrivals' || dir === 'both';
+    const showDepartures = dir === 'departures' || dir === 'both';
 
-    let t = it
-      ? 'Gentili,\n\ndi seguito i dettagli dei trasferimenti aeroporto → hotel per gli ospiti.\n\n'
-      : 'Dear Team,\n\nPlease find below the airport → hotel transfer details for our guests.\n\n';
-
-    for (const date of sortedDates) {
-      const dateLabel = date === 'TBD' ? (it ? 'Data da confermare' : 'Date TBD') : formatDateEmail(date);
-      t += `═══════════════════════════════════\n📅 ${dateLabel}\n═══════════════════════════════════\n\n`;
-
-      const sorted = byDate[date].sort((a, b) => (a.flight?.arrivalTime || 'ZZ').localeCompare(b.flight?.arrivalTime || 'ZZ'));
-
-      for (const { guest, flight } of sorted) {
-        const pax = 1 + (guest.companions?.length || 0);
-        t += `★ ${guest.firstName} ${guest.lastName} (${pax} pax)\n`;
-        if (guest.companions?.length) {
-          for (const c of guest.companions) {
-            t += `   👤 ${c.fullName}\n`;
-          }
-        }
-
-        if (flight) {
-          t += `   ✈️ ${flight.airline || '?'} ${flight.flightNumber || 'N/A'}`;
-          t += ` (${flight.departureAirport || '?'} → ${flight.arrivalAirport || '?'})`;
-          if (flight.arrivalTime) t += ` — ${it ? 'arrivo' : 'arrival'} ${flight.arrivalTime}`;
-          t += `\n`;
-        } else {
-          t += `   ✈️ ${it ? 'Volo da confermare' : 'Flight TBD'}\n`;
-        }
-
-        // Destination hotel
-        if (guest.roomType) {
-          t += `   🏨 ${it ? 'Destinazione' : 'Destination'}: ${guest.roomType}\n`;
-        }
-        if (guest.mobilityNeeds && guest.mobilityNeeds.toLowerCase() !== 'none') {
-          t += `   ♿ ${it ? 'Esigenze mobilità' : 'Mobility needs'}: ${guest.mobilityNeeds}\n`;
-        }
-        t += `\n`;
-      }
+    // Greeting
+    let t = '';
+    if (dir === 'arrivals') {
+      t = it
+        ? 'Gentili,\n\ndi seguito i dettagli dei trasferimenti aeroporto → hotel per gli ospiti.\n\n'
+        : 'Dear Team,\n\nPlease find below the airport → hotel transfer details for our guests.\n\n';
+    } else if (dir === 'departures') {
+      t = it
+        ? 'Gentili,\n\ndi seguito i dettagli dei trasferimenti hotel → aeroporto per le ripartenze degli ospiti.\n\n'
+        : 'Dear Team,\n\nPlease find below the hotel → airport transfer details for our guests\' departures.\n\n';
+    } else {
+      t = it
+        ? 'Gentili,\n\ndi seguito i dettagli completi dei trasferimenti (arrivi e ripartenze) per gli ospiti.\n\n'
+        : 'Dear Team,\n\nPlease find below the complete transfer details (arrivals and departures) for our guests.\n\n';
     }
 
-    // Full participant list
-    t += `═══════════════════════════════════\n`;
-    t += `📋 ${it ? 'LISTA COMPLETA PARTECIPANTI' : 'FULL PARTICIPANT LIST'}\n`;
-    t += `═══════════════════════════════════\n\n`;
+    // ── Helper to render a transfer section ──
+    const renderSection = (byDate, isArrival) => {
+      const sortedDates = Object.keys(byDate).sort();
+      let section = '';
 
-    const th = { d: (it?'Data':'Date').padEnd(12), n: (it?'Partecipante':'Participant').padEnd(28), r: (it?'Ruolo':'Role').padEnd(14), f: (it?'Volo':'Flight').padEnd(14), dest: (it?'Destinazione':'Destination') };
-    t += `${th.d} ${th.n} ${th.r} ${th.f} ${th.dest}\n`;
-    t += `${'─'.repeat(12)} ${'─'.repeat(28)} ${'─'.repeat(14)} ${'─'.repeat(14)} ${'─'.repeat(16)}\n`;
-    for (const date of sortedDates) {
-      const dl = date === 'TBD' ? 'TBD' : date;
-      for (const { guest, flight } of byDate[date]) {
-        const mainLabel = it ? '★ Ospite' : '★ Guest';
-        const dest = (guest.roomType || '-').substring(0, 15);
-        t += `${dl.padEnd(12)} ${`${guest.firstName} ${guest.lastName}`.substring(0,27).padEnd(28)} ${mainLabel.padEnd(14)} ${(flight ? `${flight.airline||''} ${flight.flightNumber||''}`.trim() : 'TBD').substring(0,13).padEnd(14)} ${dest}\n`;
-        if (guest.companions?.length) {
-          const compLabel = it ? 'Accompagnatore' : 'Companion';
-          for (const c of guest.companions) {
-            t += `${'↑'.padEnd(12)} ${(c.fullName || '').substring(0,27).padEnd(28)} ${compLabel.substring(0,13).padEnd(14)} ${'↑'.padEnd(14)} ${'↑'}\n`;
+      const sectionTitle = isArrival
+        ? (it ? '🛬 ARRIVI — Aeroporto → Hotel' : '🛬 ARRIVALS — Airport → Hotel')
+        : (it ? '🛫 RIPARTENZE — Hotel → Aeroporto' : '🛫 DEPARTURES — Hotel → Airport');
+
+      if (dir === 'both') {
+        section += `\n${'═'.repeat(35)}\n${sectionTitle}\n${'═'.repeat(35)}\n\n`;
+      }
+
+      for (const date of sortedDates) {
+        const dateLabel = date === 'TBD' ? (it ? 'Data da confermare' : 'Date TBD') : formatDateEmail(date);
+        section += `═══════════════════════════════════\n📅 ${dateLabel}\n═══════════════════════════════════\n\n`;
+
+        const timeField = isArrival ? 'arrivalTime' : 'departureTime';
+        const sorted = byDate[date].sort((a, b) => (a.flight?.[timeField] || 'ZZ').localeCompare(b.flight?.[timeField] || 'ZZ'));
+
+        for (const { guest, flight } of sorted) {
+          const pax = 1 + (guest.companions?.length || 0);
+          section += `★ ${guest.firstName} ${guest.lastName} (${pax} pax)\n`;
+          if (guest.companions?.length) {
+            for (const c of guest.companions) {
+              section += `   👤 ${c.fullName}\n`;
+            }
+          }
+
+          if (flight) {
+            section += `   ✈️ ${flight.airline || '?'} ${flight.flightNumber || 'N/A'}`;
+            section += ` (${flight.departureAirport || '?'} → ${flight.arrivalAirport || '?'})`;
+            if (isArrival && flight.arrivalTime) section += ` — ${it ? 'arrivo' : 'arrival'} ${flight.arrivalTime}`;
+            if (!isArrival && flight.departureTime) section += ` — ${it ? 'partenza' : 'departure'} ${flight.departureTime}`;
+            section += `\n`;
+          } else {
+            section += `   ✈️ ${it ? 'Volo da confermare' : 'Flight TBD'}\n`;
+          }
+
+          if (isArrival && guest.roomType) {
+            section += `   🏨 ${it ? 'Destinazione' : 'Destination'}: ${guest.roomType}\n`;
+          }
+          if (!isArrival && guest.roomType) {
+            section += `   🏨 ${it ? 'Partenza da' : 'Pick-up from'}: ${guest.roomType}\n`;
+          }
+          if (guest.mobilityNeeds && guest.mobilityNeeds.toLowerCase() !== 'none') {
+            section += `   ♿ ${it ? 'Esigenze mobilità' : 'Mobility needs'}: ${guest.mobilityNeeds}\n`;
+          }
+          section += `\n`;
+        }
+      }
+
+      // Participant table for this section
+      section += `═══════════════════════════════════\n`;
+      section += `📋 ${it ? 'LISTA PARTECIPANTI' : 'PARTICIPANT LIST'}${dir === 'both' ? (isArrival ? (it ? ' — Arrivi' : ' — Arrivals') : (it ? ' — Ripartenze' : ' — Departures')) : ''}\n`;
+      section += `═══════════════════════════════════\n\n`;
+
+      const thDir = isArrival ? (it ? 'Arrivo' : 'Arrival') : (it ? 'Partenza' : 'Departure');
+      const thLoc = isArrival ? (it ? 'Destinazione' : 'Destination') : (it ? 'Partenza da' : 'Pick-up');
+      const th = { d: (it?'Data':'Date').padEnd(12), n: (it?'Partecipante':'Participant').padEnd(28), r: (it?'Ruolo':'Role').padEnd(14), f: (it?'Volo':'Flight').padEnd(14), h: thDir.padEnd(8), dest: thLoc };
+      section += `${th.d} ${th.n} ${th.r} ${th.f} ${th.h} ${th.dest}\n`;
+      section += `${'─'.repeat(12)} ${'─'.repeat(28)} ${'─'.repeat(14)} ${'─'.repeat(14)} ${'─'.repeat(8)} ${'─'.repeat(16)}\n`;
+      for (const date of sortedDates) {
+        const dl = date === 'TBD' ? 'TBD' : date;
+        for (const { guest, flight } of byDate[date]) {
+          const mainLabel = it ? '★ Ospite' : '★ Guest';
+          const dest = (guest.roomType || '-').substring(0, 15);
+          const time = isArrival ? (flight?.arrivalTime || '-') : (flight?.departureTime || '-');
+          section += `${dl.padEnd(12)} ${`${guest.firstName} ${guest.lastName}`.substring(0,27).padEnd(28)} ${mainLabel.padEnd(14)} ${(flight ? `${flight.airline||''} ${flight.flightNumber||''}`.trim() : 'TBD').substring(0,13).padEnd(14)} ${time.padEnd(8)} ${dest}\n`;
+          if (guest.companions?.length) {
+            const compLabel = it ? 'Accompagnatore' : 'Companion';
+            for (const c of guest.companions) {
+              section += `${'↑'.padEnd(12)} ${(c.fullName || '').substring(0,27).padEnd(28)} ${compLabel.substring(0,13).padEnd(14)} ${'↑'.padEnd(14)} ${'↑'.padEnd(8)} ${'↑'}\n`;
+            }
           }
         }
       }
+      return section;
+    };
+
+    // Build sections
+    if (showArrivals) {
+      const byArrDate = groupByArrivalDate(guests);
+      t += renderSection(byArrDate, true);
+    }
+    if (showDepartures) {
+      const byDepDate = groupByDepartureDate(guests);
+      t += renderSection(byDepDate, false);
     }
 
     t += `\n───────────────────────────────────\n`;
-    t += it
-      ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\nGiorni di trasferimento: ${Object.keys(byDate).length}\n\nGrazie,\nCordiali saluti`
-      : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\nTransfer days: ${Object.keys(byDate).length}\n\nThank you,\nBest regards`;
+    const arrDays = showArrivals ? Object.keys(groupByArrivalDate(guests)).length : 0;
+    const depDays = showDepartures ? Object.keys(groupByDepartureDate(guests)).length : 0;
+    let summary = it
+      ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}`
+      : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}`;
+    if (showArrivals) summary += `\n${it ? 'Giorni arrivo' : 'Arrival days'}: ${arrDays}`;
+    if (showDepartures) summary += `\n${it ? 'Giorni ripartenza' : 'Departure days'}: ${depDays}`;
+    summary += it ? '\n\nGrazie,\nCordiali saluti' : '\n\nThank you,\nBest regards';
+    t += summary;
 
     if (it) t = await translateEmailToItalian(t);
     res.json({ email: t, guestCount: guests.length });
