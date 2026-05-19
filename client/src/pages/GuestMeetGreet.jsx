@@ -79,7 +79,37 @@ export default function GuestMeetGreet() {
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
   }, [selectedGuests]);
 
-  const noFlight = useMemo(() => selectedGuests.filter(g => !g.flights?.some(f => f.direction === 'ARRIVAL')), [selectedGuests]);
+  // Build map: companion fullName → main guest who has an arrival flight
+  const companionToMain = useMemo(() => {
+    const map = {};
+    selectedGuests.forEach(g => {
+      const hasArrival = g.flights?.some(f => f.direction === 'ARRIVAL');
+      if (hasArrival && g.companions?.length) {
+        for (const c of g.companions) {
+          const key = (c.fullName || '').trim().toLowerCase();
+          if (key) map[key] = g;
+        }
+      }
+    });
+    return map;
+  }, [selectedGuests]);
+
+  const guestsWithoutFlight = useMemo(() => selectedGuests.filter(g => !g.flights?.some(f => f.direction === 'ARRIVAL')), [selectedGuests]);
+
+  // Split: truly missing vs. traveling with main guest
+  const { noFlight, travelingWith } = useMemo(() => {
+    const no = [], tw = [];
+    for (const g of guestsWithoutFlight) {
+      const nameKey = `${g.firstName} ${g.lastName}`.trim().toLowerCase();
+      const main = companionToMain[nameKey];
+      if (main) {
+        tw.push({ guest: g, mainGuest: main });
+      } else {
+        no.push(g);
+      }
+    }
+    return { noFlight: no, travelingWith: tw };
+  }, [guestsWithoutFlight, companionToMain]);
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
@@ -150,25 +180,16 @@ export default function GuestMeetGreet() {
               </div>
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Partecipante</th><th>Pax</th><th>Compagnia</th><th>Volo</th><th>Arrivo</th><th>Da</th></tr></thead>
+                  <thead><tr><th>Ospite</th><th>Compagnia</th><th>Volo</th><th>Arrivo</th><th>Da</th></tr></thead>
                   <tbody>
                     {entries.sort((a, b) => (a.flight?.arrivalTime || '').localeCompare(b.flight?.arrivalTime || '')).map(({ guest: g, flight: f }) => (
-                      <React.Fragment key={g.id}>
-                        <tr className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
-                          <td style={{ fontWeight: 600 }}>★ {g.firstName} {g.lastName}</td>
-                          <td style={{ textAlign: 'center' }}>1</td>
-                          <td style={{ fontSize: 12 }}>{f.airline || '-'}</td>
-                          <td style={{ fontSize: 12 }}>{f.flightNumber || '-'}</td>
-                          <td style={{ fontWeight: 600 }}>{f.arrivalTime || '-'}</td>
-                          <td style={{ fontSize: 12 }}>{f.departureAirport || '-'}</td>
-                        </tr>
-                        {g.companions?.map((c, i) => (
-                          <tr key={`${g.id}-c${i}`} style={{ background: '#f8fafc' }}>
-                            <td style={{ paddingLeft: 24, fontSize: 12, color: 'var(--text-secondary)' }}>👤 {c.fullName}</td>
-                            <td colSpan={5} style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{c.relationship || 'Accompagnatore'}</td>
-                          </tr>
-                        ))}
-                      </React.Fragment>
+                      <tr key={g.id} className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
+                        <td style={{ fontWeight: 600 }}>{g.firstName} {g.lastName}</td>
+                        <td style={{ fontSize: 12 }}>{f.airline || '-'}</td>
+                        <td style={{ fontSize: 12 }}>{f.flightNumber || '-'}</td>
+                        <td style={{ fontWeight: 600 }}>{f.arrivalTime || '-'}</td>
+                        <td style={{ fontSize: 12 }}>{f.departureAirport || '-'}</td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
@@ -176,7 +197,21 @@ export default function GuestMeetGreet() {
             </div>
           ))}
 
-          {/* No flight guests */}
+          {/* Guests traveling with main guest (no own flight but matched as companion) */}
+          {travelingWith.length > 0 && (
+            <div className="card" style={{ marginBottom: 12, borderLeft: '4px solid var(--primary)' }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>👥 Viaggiano con ospite principale ({travelingWith.length})</div>
+              <div style={{ fontSize: 13 }}>
+                {travelingWith.map(({ guest: g, mainGuest: m }) => (
+                  <div key={g.id} style={{ padding: '2px 0' }}>
+                    • {g.firstName} {g.lastName} <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>→ volo di {m.firstName} {m.lastName}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Truly missing flight guests */}
           {noFlight.length > 0 && (
             <div className="card" style={{ borderLeft: '4px solid var(--warning)' }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>⚠️ Ospiti senza volo di arrivo ({noFlight.length})</div>

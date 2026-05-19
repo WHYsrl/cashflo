@@ -144,7 +144,6 @@ export default function GuestHotel() {
                   {data.guests.map(g => (
                     <div key={g.id} style={{ fontSize: 13, padding: '2px 0' }}>
                       <span style={{ cursor: 'pointer', color: 'var(--primary)' }} onClick={() => navigate(`/guests/${g.id}`)}>★ {g.firstName} {g.lastName}</span>
-                      {g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}> +{g.companions.map(c => c.fullName).join(', ')}</span>}
                     </div>
                   ))}
                 </div>
@@ -179,33 +178,24 @@ export default function GuestHotel() {
               </div>
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Partecipante</th><th>Pax</th><th>Camera</th><th>N. Camere</th><th>Check-out</th><th>Esigenze / Note</th></tr></thead>
+                  <thead><tr><th>Ospite</th><th>Camera</th><th>N. Camere</th><th>Check-out</th><th>Esigenze / Note</th></tr></thead>
                   <tbody>
                     {gs.map(g => {
                       const hasNeeds = g.specialRequests || (g.mobilityNeeds && !['none','n/a','no'].includes((g.mobilityNeeds||'').toLowerCase().trim())) || g.hotelUpgrade;
                       return (
-                        <React.Fragment key={g.id}>
-                          <tr className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
-                            <td style={{ fontWeight: 600 }}>★ {g.firstName} {g.lastName}</td>
-                            <td style={{ textAlign: 'center' }}>1</td>
-                            <td style={{ fontSize: 12 }}>{g.roomType || '-'}</td>
-                            <td style={{ textAlign: 'center' }}>{g.hotelRoomsNeeded || '-'}</td>
-                            <td style={{ fontSize: 12 }}>{g.checkOutDate ? formatDate(g.checkOutDate) : '-'}</td>
-                            <td style={{ fontSize: 11 }}>
-                              {hasNeeds ? (
-                                <span style={{ color: 'var(--warning)' }}>
-                                  {[g.specialRequests, g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim()) ? `♿ ${g.mobilityNeeds}` : null, g.hotelUpgrade ? `⬆️ ${g.hotelUpgrade}` : null].filter(Boolean).join(' | ').substring(0, 60)}
-                                </span>
-                              ) : '—'}
-                            </td>
-                          </tr>
-                          {g.companions?.map((c, i) => (
-                            <tr key={`${g.id}-c${i}`} style={{ background: '#f8fafc' }}>
-                              <td style={{ paddingLeft: 24, fontSize: 12, color: 'var(--text-secondary)' }}>👤 {c.fullName}</td>
-                              <td colSpan={5} style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{c.relationship || 'Accompagnatore'}</td>
-                            </tr>
-                          ))}
-                        </React.Fragment>
+                        <tr key={g.id} className="clickable-row" onClick={() => navigate(`/guests/${g.id}`)}>
+                          <td style={{ fontWeight: 600 }}>{g.firstName} {g.lastName}</td>
+                          <td style={{ fontSize: 12 }}>{g.roomType || '-'}</td>
+                          <td style={{ textAlign: 'center' }}>{g.hotelRoomsNeeded || '-'}</td>
+                          <td style={{ fontSize: 12 }}>{g.checkOutDate ? formatDate(g.checkOutDate) : '-'}</td>
+                          <td style={{ fontSize: 11 }}>
+                            {hasNeeds ? (
+                              <span style={{ color: 'var(--warning)' }}>
+                                {[g.specialRequests, g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim()) ? `♿ ${g.mobilityNeeds}` : null, g.hotelUpgrade ? `⬆️ ${g.hotelUpgrade}` : null].filter(Boolean).join(' | ').substring(0, 60)}
+                              </span>
+                            ) : '—'}
+                          </td>
+                        </tr>
                       );
                     })}
                   </tbody>

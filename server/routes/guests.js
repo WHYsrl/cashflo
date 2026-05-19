@@ -163,6 +163,22 @@ router.get('/export-transport', async (req, res) => {
     // Exclude guests that don't need transfer
     const guests = allGuests.filter(g => !g.noTransfer);
 
+    // Build companion→main guest map for "traveling with" detection
+    const companionToMain = {};
+    for (const g of guests) {
+      const hasArrival = g.flights?.some(f => f.direction === 'ARRIVAL');
+      const hasDeparture = g.flights?.some(f => f.direction === 'DEPARTURE');
+      if (g.companions?.length) {
+        for (const c of g.companions) {
+          const key = (c.fullName || '').trim().toLowerCase();
+          if (key) {
+            if (hasArrival) companionToMain[`arr_${key}`] = g;
+            if (hasDeparture) companionToMain[`dep_${key}`] = g;
+          }
+        }
+      }
+    }
+
     // ── Build rows ──
     const arrivalRows = [];
     const departureRows = [];
@@ -187,7 +203,20 @@ router.get('/export-transport', async (req, res) => {
           ...baseRow, 'Hotel': g.roomType || '',
         });
       } else {
-        noArrival.push({ ...baseRow, 'Hotel': g.roomType || '', _missing: 'arrival' });
+        const nameKey = `${g.firstName} ${g.lastName}`.trim().toLowerCase();
+        const mainArr = companionToMain[`arr_${nameKey}`];
+        if (mainArr) {
+          const mf = mainArr.flights?.find(f => f.direction === 'ARRIVAL');
+          const day = mf?.arrivalDay ? new Date(mf.arrivalDay).toISOString().split('T')[0] : mf?.date ? new Date(mf.date).toISOString().split('T')[0] : 'TBD';
+          arrivalRows.push({
+            'Data': day, 'Orario': mf?.arrivalTime || '',
+            'N. Volo': `→ ${mainArr.firstName} ${mainArr.lastName}`,
+            'Tratta': mf ? `${mf.departureAirport || '?'} → ${mf.arrivalAirport || '?'}` : '',
+            ...baseRow, 'Hotel': g.roomType || '',
+          });
+        } else {
+          noArrival.push({ ...baseRow, 'Hotel': g.roomType || '', _missing: 'arrival' });
+        }
       }
 
       const dep = g.flights?.find(f => f.direction === 'DEPARTURE');
@@ -200,7 +229,20 @@ router.get('/export-transport', async (req, res) => {
           ...baseRow, 'Hotel': g.roomType || '',
         });
       } else {
-        noDeparture.push({ ...baseRow, 'Hotel': g.roomType || '', _missing: 'departure' });
+        const nameKey = `${g.firstName} ${g.lastName}`.trim().toLowerCase();
+        const mainDep = companionToMain[`dep_${nameKey}`];
+        if (mainDep) {
+          const mf = mainDep.flights?.find(f => f.direction === 'DEPARTURE');
+          const day = mf?.date ? new Date(mf.date).toISOString().split('T')[0] : mf?.arrivalDay ? new Date(mf.arrivalDay).toISOString().split('T')[0] : 'TBD';
+          departureRows.push({
+            'Data': day, 'Orario': mf?.departureTime || '',
+            'N. Volo': `→ ${mainDep.firstName} ${mainDep.lastName}`,
+            'Tratta': mf ? `${mf.departureAirport || '?'} → ${mf.arrivalAirport || '?'}` : '',
+            ...baseRow, 'Hotel': g.roomType || '',
+          });
+        } else {
+          noDeparture.push({ ...baseRow, 'Hotel': g.roomType || '', _missing: 'departure' });
+        }
       }
     }
 
@@ -1041,6 +1083,18 @@ router.post('/email/meet-greet', async (req, res) => {
     const sortedDates = Object.keys(byDate).sort();
     const totalPeople = guests.length;
 
+    // Build companion→main guest map for "traveling with" detection
+    const companionToMain = {};
+    for (const g of guests) {
+      const hasArrival = g.flights?.some(f => f.direction === 'ARRIVAL');
+      if (hasArrival && g.companions?.length) {
+        for (const c of g.companions) {
+          const key = (c.fullName || '').trim().toLowerCase();
+          if (key) companionToMain[key] = g;
+        }
+      }
+    }
+
     let t = it
       ? 'Gentili,\n\ndi seguito i dettagli degli arrivi per il servizio di Meet & Greet.\n\n'
       : 'Dear Team,\n\nPlease find below the arrival details for the Meet & Greet service.\n\n';
@@ -1059,22 +1113,35 @@ router.post('/email/meet-greet', async (req, res) => {
           if (flight.arrivalTime) t += ` — ${it ? 'arrivo' : 'arrival'} ${flight.arrivalTime}`;
           t += `\n`;
         } else {
-          t += `   ✈️ ${it ? 'Volo da confermare' : 'Flight TBD'}\n`;
+          const nameKey = `${guest.firstName} ${guest.lastName}`.trim().toLowerCase();
+          const mainGuest = companionToMain[nameKey];
+          if (mainGuest) {
+            const mainFlight = mainGuest.flights?.find(f => f.direction === 'ARRIVAL');
+            t += `   👥 ${it ? 'Viaggia con' : 'Traveling with'} ${mainGuest.firstName} ${mainGuest.lastName}`;
+            if (mainFlight) t += ` (${mainFlight.airline || ''} ${mainFlight.flightNumber || ''})`.replace(/\s+\)/, ')');
+            t += `\n`;
+          } else {
+            t += `   ✈️ ${it ? 'Volo da confermare' : 'Flight TBD'}\n`;
+          }
         }
         t += `\n`;
       }
     }
 
-    // Summary table — all participants
-    t += `═══════════════════════════════════\n📋 ${it ? 'LISTA COMPLETA PARTECIPANTI' : 'FULL PARTICIPANT LIST'}\n═══════════════════════════════════\n\n`;
-    const h = { d: (it?'Data':'Date').padEnd(12), n: (it?'Partecipante':'Participant').padEnd(28), r: (it?'Ruolo':'Role').padEnd(14), f: (it?'Volo':'Flight').padEnd(14), a: (it?'Arrivo':'Arrival') };
+    // Summary table
+    t += `═══════════════════════════════════\n📋 ${it ? 'LISTA COMPLETA OSPITI' : 'FULL GUEST LIST'}\n═══════════════════════════════════\n\n`;
     const th2 = { d: (it?'Data':'Date').padEnd(12), n: (it?'Ospite':'Guest').padEnd(28), f: (it?'Volo':'Flight').padEnd(14), a: (it?'Arrivo':'Arrival') };
     t += `${th2.d} ${th2.n} ${th2.f} ${th2.a}\n`;
     t += `${'─'.repeat(12)} ${'─'.repeat(28)} ${'─'.repeat(14)} ${'─'.repeat(8)}\n`;
     for (const date of sortedDates) {
       const dl = date === 'TBD' ? 'TBD' : date;
       for (const { guest, flight } of byDate[date]) {
-        t += `${dl.padEnd(12)} ${`${guest.firstName} ${guest.lastName}`.substring(0,27).padEnd(28)} ${(flight ? `${flight.airline||''} ${flight.flightNumber||''}`.trim() : 'TBD').substring(0,13).padEnd(14)} ${flight?.arrivalTime || '-'}\n`;
+        const nameKey = `${guest.firstName} ${guest.lastName}`.trim().toLowerCase();
+        const mainGuest = !flight ? companionToMain[nameKey] : null;
+        const flightCol = flight
+          ? `${flight.airline||''} ${flight.flightNumber||''}`.trim()
+          : mainGuest ? `→ ${mainGuest.lastName}` : 'TBD';
+        t += `${dl.padEnd(12)} ${`${guest.firstName} ${guest.lastName}`.substring(0,27).padEnd(28)} ${flightCol.substring(0,13).padEnd(14)} ${flight?.arrivalTime || (mainGuest ? '↑' : '-')}\n`;
       }
     }
 
