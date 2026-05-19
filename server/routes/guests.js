@@ -454,13 +454,24 @@ router.post('/email/meet-greet', async (req, res) => {
       }
     }
 
-    let emailText = lang === 'it'
-      ? 'Gentili,\n\ndi seguito i dettagli degli ospiti in arrivo per il servizio di Meet & Greet:\n\n'
-      : 'Dear Team,\n\nPlease find below the arriving guest details for Meet & Greet service:\n\n';
+    const L = {
+      greeting: lang === 'it' ? 'Gentili,\n\ndi seguito i dettagli degli ospiti in arrivo per il servizio di Meet & Greet:\n\n' : 'Dear Team,\n\nPlease find below the arriving guest details for Meet & Greet service:\n\n',
+      dateTbd: lang === 'it' ? 'Data da confermare' : 'Date TBD',
+      totalPersons: lang === 'it' ? 'Persone totali' : 'Total persons',
+      flight: lang === 'it' ? 'Volo' : 'Flight',
+      arrivalTime: lang === 'it' ? 'Orario arrivo' : 'Arrival time',
+      departureTime: lang === 'it' ? 'Orario partenza' : 'Departure time',
+      flightTbd: lang === 'it' ? 'Dettagli volo: da confermare' : 'Flight details: TBD',
+      notes: lang === 'it' ? 'Note' : 'Notes',
+      mobility: lang === 'it' ? 'Mobilità' : 'Mobility',
+      footer: lang === 'it' ? `───────────────────────────────────\nTotale ospiti: ${guests.length} (+ accompagnatori)\n\nGrazie,\nCordiali saluti` : `───────────────────────────────────\nTotal guests: ${guests.length} (+ companions)\n\nThank you,\nBest regards`,
+    };
+
+    let emailText = L.greeting;
 
     const sortedDates = Object.keys(byDate).sort();
     for (const date of sortedDates) {
-      const dateLabel = date === 'TBD' ? 'Date TBD' : formatDateEmail(date);
+      const dateLabel = date === 'TBD' ? L.dateTbd : formatDateEmail(date);
       emailText += `═══════════════════════════════════\n`;
       emailText += `📅 ${dateLabel}\n`;
       emailText += `═══════════════════════════════════\n\n`;
@@ -472,31 +483,55 @@ router.post('/email/meet-greet', async (req, res) => {
         emailText += `👤 ${guest.firstName} ${guest.lastName}`;
         if (companionNames) emailText += ` + ${companionNames}`;
         emailText += `\n`;
-        emailText += `   Total persons: ${totalPeople}\n`;
+        emailText += `   ${L.totalPersons}: ${totalPeople}\n`;
 
         if (flight) {
-          emailText += `   ✈️ Flight: ${flight.airline || ''} ${flight.flightNumber || 'N/A'}`;
+          emailText += `   ✈️ ${L.flight}: ${flight.airline || ''} ${flight.flightNumber || 'N/A'}`;
           emailText += ` (${flight.departureAirport || '?'} → ${flight.arrivalAirport || '?'})`;
           emailText += `\n`;
-          if (flight.arrivalTime) emailText += `   🕐 Arrival time: ${flight.arrivalTime}\n`;
-          else if (flight.departureTime) emailText += `   🕐 Departure time: ${flight.departureTime}\n`;
+          if (flight.arrivalTime) emailText += `   🕐 ${L.arrivalTime}: ${flight.arrivalTime}\n`;
+          else if (flight.departureTime) emailText += `   🕐 ${L.departureTime}: ${flight.departureTime}\n`;
         } else {
-          emailText += `   ✈️ Flight details: TBD\n`;
+          emailText += `   ✈️ ${L.flightTbd}\n`;
         }
 
         if (guest.specialRequests) {
-          emailText += `   ⚠️ Notes: ${guest.specialRequests}\n`;
+          emailText += `   ⚠️ ${L.notes}: ${guest.specialRequests}\n`;
         }
         if (guest.mobilityNeeds && guest.mobilityNeeds.toLowerCase() !== 'none') {
-          emailText += `   ♿ Mobility: ${guest.mobilityNeeds}\n`;
+          emailText += `   ♿ ${L.mobility}: ${guest.mobilityNeeds}\n`;
         }
         emailText += `\n`;
       }
     }
 
-    emailText += lang === 'it'
-      ? `───────────────────────────────────\nTotale ospiti: ${guests.length} (+ accompagnatori)\n\nGrazie,\nCordiali saluti`
-      : `───────────────────────────────────\nTotal guests: ${guests.length} (+ companions)\n\nThank you,\nBest regards`;
+    // Summary table
+    emailText += `\n═══════════════════════════════════\n`;
+    emailText += lang === 'it' ? `📋 RIEPILOGO\n` : `📋 SUMMARY\n`;
+    emailText += `═══════════════════════════════════\n\n`;
+
+    const hdrDate = lang === 'it' ? 'Data' : 'Date';
+    const hdrName = lang === 'it' ? 'Ospite' : 'Guest';
+    const hdrPax = 'Pax';
+    const hdrFlight = lang === 'it' ? 'Volo' : 'Flight';
+    const hdrArr = lang === 'it' ? 'Arrivo' : 'Arrival';
+
+    emailText += `${hdrDate.padEnd(12)} ${hdrName.padEnd(28)} ${hdrPax.padEnd(5)} ${hdrFlight.padEnd(16)} ${hdrArr}\n`;
+    emailText += `${'─'.repeat(12)} ${'─'.repeat(28)} ${'─'.repeat(5)} ${'─'.repeat(16)} ${'─'.repeat(10)}\n`;
+
+    for (const date of sortedDates) {
+      const dateLabel = date === 'TBD' ? (lang === 'it' ? 'TBC' : 'TBD') : date;
+      for (const { guest, flight } of byDate[date]) {
+        const pax = 1 + (guest.companions?.length || 0);
+        const name = `${guest.firstName} ${guest.lastName}`.substring(0, 27);
+        const fl = flight ? `${flight.airline || ''} ${flight.flightNumber || ''}`.trim().substring(0, 15) : 'TBD';
+        const arr = flight?.arrivalTime || '-';
+        emailText += `${dateLabel.padEnd(12)} ${name.padEnd(28)} ${String(pax).padEnd(5)} ${fl.padEnd(16)} ${arr}\n`;
+      }
+    }
+    emailText += `\n`;
+
+    emailText += L.footer;
 
     res.json({ email: emailText, guestCount: guests.length });
   } catch (err) {
@@ -530,13 +565,24 @@ router.post('/email/transportation', async (req, res) => {
       }
     }
 
-    let emailText = lang === 'it'
-      ? 'Gentili,\n\ndi seguito i dettagli dei trasferimenti aeroporto → hotel per gli ospiti:\n\n'
-      : 'Dear Team,\n\nPlease find below the airport → hotel transfer details for our guests:\n\n';
+    const L = {
+      greeting: lang === 'it' ? 'Gentili,\n\ndi seguito i dettagli dei trasferimenti aeroporto → hotel per gli ospiti:\n\n' : 'Dear Team,\n\nPlease find below the airport → hotel transfer details for our guests:\n\n',
+      dateTbd: lang === 'it' ? 'Data da confermare' : 'Date TBD',
+      totalPersons: lang === 'it' ? 'Persone totali' : 'Total persons',
+      flight: lang === 'it' ? 'Volo' : 'Flight',
+      arrivalTime: lang === 'it' ? 'Orario arrivo' : 'Arrival time',
+      flightTbd: lang === 'it' ? 'Dettagli volo: da confermare' : 'Flight details: TBD',
+      hotelCheckin: lang === 'it' ? 'Check-in hotel' : 'Hotel check-in',
+      notes: lang === 'it' ? 'Note' : 'Notes',
+      mobility: lang === 'it' ? 'Mobilità' : 'Mobility',
+      footer: lang === 'it' ? `───────────────────────────────────\nTotale ospiti: ${guests.length} (+ accompagnatori)\nTotale trasferimenti: ${Object.keys(byDate).length} giorno/i\n\nGrazie,\nCordiali saluti` : `───────────────────────────────────\nTotal guests: ${guests.length} (+ companions)\nTotal transfer days: ${Object.keys(byDate).length}\n\nThank you,\nBest regards`,
+    };
+
+    let emailText = L.greeting;
 
     const sortedDates = Object.keys(byDate).sort();
     for (const date of sortedDates) {
-      const dateLabel = date === 'TBD' ? 'Date TBD' : formatDateEmail(date);
+      const dateLabel = date === 'TBD' ? L.dateTbd : formatDateEmail(date);
       emailText += `═══════════════════════════════════\n`;
       emailText += `📅 ${dateLabel}\n`;
       emailText += `═══════════════════════════════════\n\n`;
@@ -556,35 +602,33 @@ router.post('/email/transportation', async (req, res) => {
         emailText += `👤 ${guest.firstName} ${guest.lastName}`;
         if (companionNames) emailText += ` + ${companionNames}`;
         emailText += `\n`;
-        emailText += `   Total persons: ${totalPeople}\n`;
+        emailText += `   ${L.totalPersons}: ${totalPeople}\n`;
 
         if (flight) {
-          emailText += `   ✈️ Flight: ${flight.airline || ''} ${flight.flightNumber || 'N/A'}`;
+          emailText += `   ✈️ ${L.flight}: ${flight.airline || ''} ${flight.flightNumber || 'N/A'}`;
           emailText += ` (${flight.departureAirport || '?'} → ${flight.arrivalAirport || '?'})`;
           emailText += `\n`;
-          if (flight.arrivalTime) emailText += `   🕐 Arrival time: ${flight.arrivalTime}\n`;
+          if (flight.arrivalTime) emailText += `   🕐 ${L.arrivalTime}: ${flight.arrivalTime}\n`;
         } else {
-          emailText += `   ✈️ Flight details: TBD\n`;
+          emailText += `   ✈️ ${L.flightTbd}\n`;
         }
 
         if (guest.checkInDate) {
-          emailText += `   🏨 Hotel check-in: ${formatDateEmail(guest.checkInDate)} ${hotel}\n`;
+          emailText += `   🏨 ${L.hotelCheckin}: ${formatDateEmail(guest.checkInDate)} ${hotel}\n`;
         }
 
         if (guest.specialRequests) {
-          emailText += `   ⚠️ Notes: ${guest.specialRequests}\n`;
+          emailText += `   ⚠️ ${L.notes}: ${guest.specialRequests}\n`;
         }
         if (guest.mobilityNeeds && guest.mobilityNeeds.toLowerCase() !== 'none') {
-          emailText += `   ♿ Mobility: ${guest.mobilityNeeds}\n`;
+          emailText += `   ♿ ${L.mobility}: ${guest.mobilityNeeds}\n`;
         }
 
         emailText += `\n`;
       }
     }
 
-    emailText += lang === 'it'
-      ? `───────────────────────────────────\nTotale ospiti: ${guests.length} (+ accompagnatori)\nTotale trasferimenti: ${Object.keys(byDate).length} giorno/i\n\nGrazie,\nCordiali saluti`
-      : `───────────────────────────────────\nTotal guests: ${guests.length} (+ companions)\nTotal transfer days: ${Object.keys(byDate).length}\n\nThank you,\nBest regards`;
+    emailText += L.footer;
 
     res.json({ email: emailText, guestCount: guests.length });
   } catch (err) {
