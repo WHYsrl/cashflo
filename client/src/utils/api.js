@@ -66,5 +66,7 @@ export const api = {
   importGuestsConfirm: (importId, guests, token) => request(`/guests/import/${importId}/confirm`, { method: 'POST', body: JSON.stringify({ guests }), headers: { 'x-guest-auth': token } }),
   generateMeetGreetEmail: (guestIds, language, token) => request('/guests/email/meet-greet', { method: 'POST', body: JSON.stringify({ guestIds, language }), headers: { 'x-guest-auth': token } }),
   generateTransportEmail: (guestIds, language, token) => request('/guests/email/transportation', { method: 'POST', body: JSON.stringify({ guestIds, language }), headers: { 'x-guest-auth': token } }),
+  generateRestaurantEmail: (guestIds, language, token) => request('/guests/email/restaurant', { method: 'POST', body: JSON.stringify({ guestIds, language }), headers: { 'x-guest-auth': token } }),
+  generateHotelEmail: (guestIds, language, token) => request('/guests/email/hotel', { method: 'POST', body: JSON.stringify({ guestIds, language }), headers: { 'x-guest-auth': token } }),
   getGuestInsights: (token) => request('/guests/insights', { method: 'POST', body: '{}', headers: { 'x-guest-auth': token } }),
 };

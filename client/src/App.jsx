@@ -13,6 +13,8 @@ import GuestImport from './pages/GuestImport.jsx';
 import GuestMeetGreet from './pages/GuestMeetGreet.jsx';
 import GuestTransport from './pages/GuestTransport.jsx';
 import GuestInsights from './pages/GuestInsights.jsx';
+import GuestRestaurant from './pages/GuestRestaurant.jsx';
+import GuestHotel from './pages/GuestHotel.jsx';
 
 function GuestNav() {
   return (
@@ -31,6 +33,12 @@ function GuestNav() {
       </NavLink>
       <NavLink to="/guests/transportation" className={({ isActive }) => isActive ? 'active' : ''}>
         🚐 Transportation
+      </NavLink>
+      <NavLink to="/guests/restaurant" className={({ isActive }) => isActive ? 'active' : ''}>
+        🍽️ Ristorante
+      </NavLink>
+      <NavLink to="/guests/hotel" className={({ isActive }) => isActive ? 'active' : ''}>
+        🏨 Hotel
       </NavLink>
       <NavLink to="/guests/insights" className={({ isActive }) => isActive ? 'active' : ''}>
         🔍 AI Insights
@@ -85,6 +93,8 @@ export default function App() {
           <Route path="/guests/import" element={<GuestImport />} />
           <Route path="/guests/meet-greet" element={<GuestMeetGreet />} />
           <Route path="/guests/transportation" element={<GuestTransport />} />
+          <Route path="/guests/restaurant" element={<GuestRestaurant />} />
+          <Route path="/guests/hotel" element={<GuestHotel />} />
           <Route path="/guests/insights" element={<GuestInsights />} />
           <Route path="/guests/:id" element={<GuestDetail />} />
           <Route path="/guests" element={<GuestList />} />
