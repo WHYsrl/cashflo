@@ -71,4 +71,6 @@ export const api = {
   translateGuestFields: (token) => request('/guests/translate-fields', { method: 'POST', body: '{}', headers: { 'x-guest-auth': token } }),
   getGuestInsights: (language, token) => request('/guests/insights', { method: 'POST', body: JSON.stringify({ language }), headers: { 'x-guest-auth': token } }),
   checkFlights: (language, token) => request('/guests/flight-check', { method: 'POST', body: JSON.stringify({ language }), headers: { 'x-guest-auth': token } }),
+  exportGuestsUrl: (token) => `${BASE}/guests/export?token=${encodeURIComponent(token)}`,
+  bulkUpdateGuests: (formData, token) => fetch(`${BASE}/guests/import/bulk-update`, { method: 'POST', body: formData, headers: { 'x-guest-auth': token } }).then(r => r.json()),
 };

@@ -13,7 +13,7 @@ const router = Router();
 const GUEST_PASSWORD = process.env.GUEST_PASSWORD || 'afhu2026';
 
 function authMiddleware(req, res, next) {
-  const token = req.headers['x-guest-auth'];
+  const token = req.headers['x-guest-auth'] || req.query.token;
   if (token === GUEST_PASSWORD) return next();
   res.status(401).json({ error: 'Accesso non autorizzato' });
 }
@@ -157,6 +157,306 @@ router.delete('/:guestId/flights/:flightId', async (req, res) => {
   try {
     await prisma.guestFlight.delete({ where: { id: req.params.flightId } });
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// EXPORT: Download all guests as Excel
+// ============================================================
+router.get('/export', async (req, res) => {
+  try {
+    const XLSX = (await import('xlsx')).default;
+    const guests = await prisma.guest.findMany({
+      include: { companions: true, flights: true },
+      orderBy: { lastName: 'asc' }
+    });
+
+    // ── Main guests sheet ──
+    const guestRows = guests.map(g => {
+      const arrFlight = g.flights?.find(f => f.direction === 'ARRIVAL');
+      const depFlight = g.flights?.find(f => f.direction === 'DEPARTURE');
+      return {
+        'ID': g.id,
+        'Nome': g.firstName,
+        'Cognome': g.lastName,
+        'Nome Completo': g.fullName || '',
+        'Email': g.email || '',
+        'Telefono': g.phone || '',
+        'Tel. Ufficio': g.phoneOffice || '',
+        'Indirizzo': g.mailingAddress || '',
+        'Città': g.city || '',
+        'Stato': g.state || '',
+        'CAP': g.zip || '',
+        // Hotel
+        'N. Camere': g.hotelRoomsNeeded || '',
+        'Tipo Camera': g.roomType || '',
+        'Check-in': g.checkInDate ? new Date(g.checkInDate).toISOString().split('T')[0] : '',
+        'Check-out': g.checkOutDate ? new Date(g.checkOutDate).toISOString().split('T')[0] : '',
+        'Upgrade Hotel': g.hotelUpgrade || '',
+        // Passport
+        'Paese Passaporto': g.passportCountry || '',
+        'N. Passaporto': g.passportNumber || '',
+        'Scadenza Passaporto': g.passportExpiry || '',
+        'Data Nascita': g.dateOfBirth || '',
+        // Dietary & Medical
+        'Restrizioni Alimentari': g.dietaryRestrictions || '',
+        'Esigenze Mobilità': g.mobilityNeeds || '',
+        'Info Mediche': g.medicalInfo || '',
+        'Attestazione Salute': g.healthAttestation ? 'SI' : 'NO',
+        // Assistant
+        'Nome Assistente': g.assistantName || '',
+        'Email Assistente': g.assistantEmail || '',
+        'Tel. Assistente': g.assistantPhone || '',
+        // Emergency
+        'Contatto Emergenza': g.emergencyName || '',
+        'Tel. Emergenza': g.emergencyPhone || '',
+        'Email Emergenza': g.emergencyEmail || '',
+        'Relazione Emergenza': g.emergencyRelation || '',
+        // Bio & misc
+        'Bio': g.bio || '',
+        'WhatsApp Opt-in': g.whatsappOptIn ? 'SI' : 'NO',
+        'Richieste Speciali': g.specialRequests || '',
+        'Note': g.notes || '',
+        // Consent
+        'Privacy': g.privacyConsent ? 'SI' : 'NO',
+        'Diritti Immagine': g.imageRightsConsent ? 'SI' : 'NO',
+        'Responsabilità': g.liabilityConsent ? 'SI' : 'NO',
+        'Cancellazione': g.cancellationConsent ? 'SI' : 'NO',
+        'Assicurazione': g.insuranceConsent ? 'SI' : 'NO',
+        // Flights (flattened)
+        'Volo Arrivo - Compagnia': arrFlight?.airline || '',
+        'Volo Arrivo - Numero': arrFlight?.flightNumber || '',
+        'Volo Arrivo - Da': arrFlight?.departureAirport || '',
+        'Volo Arrivo - A': arrFlight?.arrivalAirport || '',
+        'Volo Arrivo - Data': arrFlight?.arrivalDay ? new Date(arrFlight.arrivalDay).toISOString().split('T')[0] : arrFlight?.date ? new Date(arrFlight.date).toISOString().split('T')[0] : '',
+        'Volo Arrivo - Ora Arrivo': arrFlight?.arrivalTime || '',
+        'Volo Arrivo - Ora Partenza': arrFlight?.departureTime || '',
+        'Volo Partenza - Compagnia': depFlight?.airline || '',
+        'Volo Partenza - Numero': depFlight?.flightNumber || '',
+        'Volo Partenza - Da': depFlight?.departureAirport || '',
+        'Volo Partenza - A': depFlight?.arrivalAirport || '',
+        'Volo Partenza - Data': depFlight?.date ? new Date(depFlight.date).toISOString().split('T')[0] : '',
+        'Volo Partenza - Ora Partenza': depFlight?.departureTime || '',
+        // Companions (concatenated)
+        'Accompagnatori': g.companions?.map(c => `${c.fullName}${c.relationship ? ` (${c.relationship})` : ''}`).join('; ') || '',
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(guestRows);
+
+    // Auto-size columns
+    const colWidths = Object.keys(guestRows[0] || {}).map(key => ({
+      wch: Math.max(key.length, ...guestRows.map(r => String(r[key] || '').length).slice(0, 20)) + 2
+    }));
+    ws['!cols'] = colWidths;
+
+    // Freeze header row
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Ospiti');
+
+    // ── Instructions sheet for re-import ──
+    const instrRows = [
+      { 'Istruzioni Re-Import': '📋 ISTRUZIONI PER AGGIORNAMENTO MASSIVO' },
+      { 'Istruzioni Re-Import': '' },
+      { 'Istruzioni Re-Import': '1. Modifica i dati nel foglio "Ospiti" — NON eliminare o modificare la colonna ID' },
+      { 'Istruzioni Re-Import': '2. Per aggiornare un ospite esistente: mantieni il suo ID e modifica i campi desiderati' },
+      { 'Istruzioni Re-Import': '3. Per aggiungere un nuovo ospite: lascia la cella ID vuota, compila Nome e Cognome' },
+      { 'Istruzioni Re-Import': '4. Per cancellare un campo: svuota la cella (lascia vuota)' },
+      { 'Istruzioni Re-Import': '5. Valori SI/NO per campi booleani (Privacy, WhatsApp, Attestazione Salute, ecc.)' },
+      { 'Istruzioni Re-Import': '6. Date in formato AAAA-MM-GG (es. 2026-06-18)' },
+      { 'Istruzioni Re-Import': '7. Accompagnatori separati da punto e virgola: "Mario Rossi (Moglie); Laura Bianchi (Figlia)"' },
+      { 'Istruzioni Re-Import': '8. Reimporta il file dalla pagina Ospiti usando il bottone "📤 Import Excel"' },
+      { 'Istruzioni Re-Import': '' },
+      { 'Istruzioni Re-Import': '⚠️ La colonna ID è fondamentale per aggiornare i record esistenti.' },
+      { 'Istruzioni Re-Import': '   Senza ID, il sistema creerà un nuovo ospite.' },
+    ];
+    const wsInstr = XLSX.utils.json_to_sheet(instrRows);
+    wsInstr['!cols'] = [{ wch: 90 }];
+    XLSX.utils.book_append_sheet(wb, wsInstr, 'Istruzioni');
+
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const fileName = `ospiti_export_${new Date().toISOString().split('T')[0]}.xlsx`;
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.document');
+    res.send(Buffer.from(buf));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// BULK UPDATE: Re-import Excel with upserts
+// ============================================================
+router.post('/import/bulk-update', upload.single('file'), async (req, res) => {
+  try {
+    const filePath = req.file.path;
+    const XLSX = (await import('xlsx')).default;
+    const workbook = XLSX.readFile(filePath);
+    const sheet = workbook.Sheets['Ospiti'] || workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet);
+
+    let updated = 0, created = 0, errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      try {
+        const guestData = {
+          firstName: r['Nome'] || '',
+          lastName: r['Cognome'] || '',
+          fullName: r['Nome Completo'] || null,
+          email: r['Email'] || null,
+          phone: r['Telefono'] || null,
+          phoneOffice: r['Tel. Ufficio'] || null,
+          mailingAddress: r['Indirizzo'] || null,
+          city: r['Città'] || null,
+          state: r['Stato'] || null,
+          zip: r['CAP'] || null,
+          hotelRoomsNeeded: r['N. Camere'] ? parseInt(r['N. Camere']) : null,
+          roomType: r['Tipo Camera'] || null,
+          checkInDate: r['Check-in'] ? new Date(r['Check-in']) : null,
+          checkOutDate: r['Check-out'] ? new Date(r['Check-out']) : null,
+          hotelUpgrade: r['Upgrade Hotel'] || null,
+          passportCountry: r['Paese Passaporto'] || null,
+          passportNumber: r['N. Passaporto'] ? String(r['N. Passaporto']) : null,
+          passportExpiry: r['Scadenza Passaporto'] ? String(r['Scadenza Passaporto']) : null,
+          dateOfBirth: r['Data Nascita'] ? String(r['Data Nascita']) : null,
+          dietaryRestrictions: r['Restrizioni Alimentari'] || null,
+          mobilityNeeds: r['Esigenze Mobilità'] || null,
+          medicalInfo: r['Info Mediche'] || null,
+          healthAttestation: String(r['Attestazione Salute']).toUpperCase() === 'SI',
+          assistantName: r['Nome Assistente'] || null,
+          assistantEmail: r['Email Assistente'] || null,
+          assistantPhone: r['Tel. Assistente'] || null,
+          emergencyName: r['Contatto Emergenza'] || null,
+          emergencyPhone: r['Tel. Emergenza'] || null,
+          emergencyEmail: r['Email Emergenza'] || null,
+          emergencyRelation: r['Relazione Emergenza'] || null,
+          bio: r['Bio'] || null,
+          whatsappOptIn: String(r['WhatsApp Opt-in']).toUpperCase() === 'SI',
+          specialRequests: r['Richieste Speciali'] || null,
+          notes: r['Note'] || null,
+          privacyConsent: String(r['Privacy']).toUpperCase() === 'SI',
+          imageRightsConsent: String(r['Diritti Immagine']).toUpperCase() === 'SI',
+          liabilityConsent: String(r['Responsabilità']).toUpperCase() === 'SI',
+          cancellationConsent: String(r['Cancellazione']).toUpperCase() === 'SI',
+          insuranceConsent: String(r['Assicurazione']).toUpperCase() === 'SI',
+        };
+
+        if (!guestData.firstName && !guestData.lastName) continue; // skip empty rows
+
+        const guestId = r['ID'] ? String(r['ID']).trim() : null;
+
+        if (guestId) {
+          // Check if guest exists
+          const existing = await prisma.guest.findUnique({ where: { id: guestId } });
+          if (existing) {
+            await prisma.guest.update({ where: { id: guestId }, data: guestData });
+
+            // Update flights if provided
+            const arrAirline = r['Volo Arrivo - Compagnia'];
+            const arrNumber = r['Volo Arrivo - Numero'];
+            if (arrAirline || arrNumber) {
+              const existingArr = await prisma.guestFlight.findFirst({ where: { guestId, direction: 'ARRIVAL' } });
+              const arrData = {
+                direction: 'ARRIVAL',
+                airline: arrAirline || null,
+                flightNumber: arrNumber ? String(arrNumber) : null,
+                departureAirport: r['Volo Arrivo - Da'] || null,
+                arrivalAirport: r['Volo Arrivo - A'] || null,
+                arrivalDay: r['Volo Arrivo - Data'] ? new Date(r['Volo Arrivo - Data']) : null,
+                arrivalTime: r['Volo Arrivo - Ora Arrivo'] ? String(r['Volo Arrivo - Ora Arrivo']) : null,
+                departureTime: r['Volo Arrivo - Ora Partenza'] ? String(r['Volo Arrivo - Ora Partenza']) : null,
+              };
+              if (existingArr) await prisma.guestFlight.update({ where: { id: existingArr.id }, data: arrData });
+              else await prisma.guestFlight.create({ data: { ...arrData, guestId } });
+            }
+
+            const depAirline = r['Volo Partenza - Compagnia'];
+            const depNumber = r['Volo Partenza - Numero'];
+            if (depAirline || depNumber) {
+              const existingDep = await prisma.guestFlight.findFirst({ where: { guestId, direction: 'DEPARTURE' } });
+              const depData = {
+                direction: 'DEPARTURE',
+                airline: depAirline || null,
+                flightNumber: depNumber ? String(depNumber) : null,
+                departureAirport: r['Volo Partenza - Da'] || null,
+                arrivalAirport: r['Volo Partenza - A'] || null,
+                date: r['Volo Partenza - Data'] ? new Date(r['Volo Partenza - Data']) : null,
+                departureTime: r['Volo Partenza - Ora Partenza'] ? String(r['Volo Partenza - Ora Partenza']) : null,
+              };
+              if (existingDep) await prisma.guestFlight.update({ where: { id: existingDep.id }, data: depData });
+              else await prisma.guestFlight.create({ data: { ...depData, guestId } });
+            }
+
+            // Update companions if provided
+            const compStr = r['Accompagnatori'];
+            if (compStr && String(compStr).trim()) {
+              // Delete existing companions and recreate
+              await prisma.guestCompanion.deleteMany({ where: { guestId } });
+              const comps = String(compStr).split(';').map(s => s.trim()).filter(Boolean);
+              for (const comp of comps) {
+                const match = comp.match(/^(.+?)(?:\s*\((.+?)\))?$/);
+                if (match) {
+                  await prisma.guestCompanion.create({
+                    data: { guestId, fullName: match[1].trim(), relationship: match[2]?.trim() || null }
+                  });
+                }
+              }
+            }
+
+            updated++;
+          } else {
+            // ID provided but not found — create new with auto ID
+            const newGuest = await prisma.guest.create({ data: guestData });
+            created++;
+          }
+        } else {
+          // No ID — create new guest
+          const newGuest = await prisma.guest.create({ data: guestData });
+          const newId = newGuest.id;
+
+          // Create flights
+          const arrAirline = r['Volo Arrivo - Compagnia'];
+          const arrNumber = r['Volo Arrivo - Numero'];
+          if (arrAirline || arrNumber) {
+            await prisma.guestFlight.create({
+              data: {
+                guestId: newId, direction: 'ARRIVAL',
+                airline: arrAirline || null, flightNumber: arrNumber ? String(arrNumber) : null,
+                departureAirport: r['Volo Arrivo - Da'] || null, arrivalAirport: r['Volo Arrivo - A'] || null,
+                arrivalDay: r['Volo Arrivo - Data'] ? new Date(r['Volo Arrivo - Data']) : null,
+                arrivalTime: r['Volo Arrivo - Ora Arrivo'] ? String(r['Volo Arrivo - Ora Arrivo']) : null,
+                departureTime: r['Volo Arrivo - Ora Partenza'] ? String(r['Volo Arrivo - Ora Partenza']) : null,
+              }
+            });
+          }
+
+          // Create companions
+          const compStr = r['Accompagnatori'];
+          if (compStr && String(compStr).trim()) {
+            const comps = String(compStr).split(';').map(s => s.trim()).filter(Boolean);
+            for (const comp of comps) {
+              const match = comp.match(/^(.+?)(?:\s*\((.+?)\))?$/);
+              if (match) {
+                await prisma.guestCompanion.create({
+                  data: { guestId: newId, fullName: match[1].trim(), relationship: match[2]?.trim() || null }
+                });
+              }
+            }
+          }
+
+          created++;
+        }
+      } catch (rowErr) {
+        errors.push({ row: i + 2, name: `${r['Nome'] || ''} ${r['Cognome'] || ''}`, error: rowErr.message });
+      }
+    }
+
+    res.json({ updated, created, errors, total: rows.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

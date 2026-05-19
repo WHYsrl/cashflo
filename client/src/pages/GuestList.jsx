@@ -142,12 +142,38 @@ export default function GuestList() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sortCol, setSortCol] = useState('name');
   const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => { localStorage.setItem('guestListCols', JSON.stringify(activeCols)); }, [activeCols]);
 
   useEffect(() => {
     if (token) api.getGuests(token).then(setGuests).catch(() => navigate('/guests/login')).finally(() => setLoading(false));
   }, [token]);
+
+  const handleExport = () => {
+    window.open(api.exportGuestsUrl(token), '_blank');
+  };
+
+  const handleBulkImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    if (!confirm(`Vuoi importare "${file.name}"?\n\nGli ospiti con ID esistente verranno AGGIORNATI.\nLe righe senza ID creeranno NUOVI ospiti.`)) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const result = await api.bulkUpdateGuests(formData, token);
+      setImportResult(result);
+      // Refresh guest list
+      const refreshed = await api.getGuests(token);
+      setGuests(refreshed);
+    } catch (err) { alert(err.message); }
+    setImporting(false);
+  };
 
   const filtered = guests.filter(g =>
     `${g.firstName} ${g.lastName} ${g.email || ''} ${g.companions?.map(c => c.fullName).join(' ') || ''}`.toLowerCase().includes(search.toLowerCase())
@@ -186,6 +212,11 @@ export default function GuestList() {
         <div className="btn-group">
           <button className="btn btn-sm btn-primary" onClick={() => navigate('/guests/new')}>+ Nuovo Ospite</button>
           <button className="btn btn-sm" onClick={() => navigate('/guests/import')}>📥 Import</button>
+          <button className="btn btn-sm" onClick={handleExport}>📊 Export Excel</button>
+          <button className="btn btn-sm" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+            {importing ? <><span className="spinner" style={{ width: 12, height: 12, borderWidth: 2, display: 'inline-block', marginRight: 4 }} /> Aggiornamento...</> : '📤 Import Excel'}
+          </button>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleBulkImport} style={{ display: 'none' }} />
         </div>
       </div>
 
@@ -195,6 +226,26 @@ export default function GuestList() {
         <div className="stat-card"><div className="stat-label">Camere</div><div className="stat-value">{totalRooms}</div></div>
         <div className="stat-card"><div className="stat-label">Con volo</div><div className="stat-value">{withFlights}/{guests.length}</div></div>
       </div>
+
+      {importResult && (
+        <div className="card" style={{ marginBottom: 16, borderLeft: `4px solid ${importResult.errors?.length ? 'var(--warning)' : 'var(--success)'}`, padding: '12px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 14 }}>
+              <strong>{importResult.errors?.length ? '⚠️' : '✅'} Import completato:</strong>{' '}
+              {importResult.updated > 0 && <span style={{ color: 'var(--primary)' }}>{importResult.updated} aggiornati</span>}
+              {importResult.updated > 0 && importResult.created > 0 && ' • '}
+              {importResult.created > 0 && <span style={{ color: 'var(--success)' }}>{importResult.created} creati</span>}
+              {importResult.errors?.length > 0 && <span style={{ color: 'var(--danger)' }}> • {importResult.errors.length} errori</span>}
+            </div>
+            <button className="btn btn-sm" onClick={() => setImportResult(null)}>✕</button>
+          </div>
+          {importResult.errors?.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--danger)' }}>
+              {importResult.errors.map((e, i) => <div key={i}>Riga {e.row}: {e.name} — {e.error}</div>)}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <input className="form-input" placeholder="Cerca ospite..." value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: 300 }} />
