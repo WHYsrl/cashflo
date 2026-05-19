@@ -44,6 +44,114 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET export Excel (must be before /:id to avoid route conflict)
+router.get('/export', async (req, res) => {
+  try {
+    const XLSX = (await import('xlsx')).default;
+    const guests = await prisma.guest.findMany({
+      include: { companions: true, flights: true },
+      orderBy: { lastName: 'asc' }
+    });
+
+    const guestRows = guests.map(g => {
+      const arrFlight = g.flights?.find(f => f.direction === 'ARRIVAL');
+      const depFlight = g.flights?.find(f => f.direction === 'DEPARTURE');
+      return {
+        'ID': g.id,
+        'Nome': g.firstName,
+        'Cognome': g.lastName,
+        'Nome Completo': g.fullName || '',
+        'Email': g.email || '',
+        'Telefono': g.phone || '',
+        'Tel. Ufficio': g.phoneOffice || '',
+        'Indirizzo': g.mailingAddress || '',
+        'Città': g.city || '',
+        'Stato': g.state || '',
+        'CAP': g.zip || '',
+        'N. Camere': g.hotelRoomsNeeded || '',
+        'Tipo Camera': g.roomType || '',
+        'Check-in': g.checkInDate ? new Date(g.checkInDate).toISOString().split('T')[0] : '',
+        'Check-out': g.checkOutDate ? new Date(g.checkOutDate).toISOString().split('T')[0] : '',
+        'Upgrade Hotel': g.hotelUpgrade || '',
+        'Paese Passaporto': g.passportCountry || '',
+        'N. Passaporto': g.passportNumber || '',
+        'Scadenza Passaporto': g.passportExpiry || '',
+        'Data Nascita': g.dateOfBirth || '',
+        'Restrizioni Alimentari': g.dietaryRestrictions || '',
+        'Esigenze Mobilità': g.mobilityNeeds || '',
+        'Info Mediche': g.medicalInfo || '',
+        'Attestazione Salute': g.healthAttestation ? 'SI' : 'NO',
+        'Nome Assistente': g.assistantName || '',
+        'Email Assistente': g.assistantEmail || '',
+        'Tel. Assistente': g.assistantPhone || '',
+        'Contatto Emergenza': g.emergencyName || '',
+        'Tel. Emergenza': g.emergencyPhone || '',
+        'Email Emergenza': g.emergencyEmail || '',
+        'Relazione Emergenza': g.emergencyRelation || '',
+        'Bio': g.bio || '',
+        'WhatsApp Opt-in': g.whatsappOptIn ? 'SI' : 'NO',
+        'Richieste Speciali': g.specialRequests || '',
+        'Note': g.notes || '',
+        'Privacy': g.privacyConsent ? 'SI' : 'NO',
+        'Diritti Immagine': g.imageRightsConsent ? 'SI' : 'NO',
+        'Responsabilità': g.liabilityConsent ? 'SI' : 'NO',
+        'Cancellazione': g.cancellationConsent ? 'SI' : 'NO',
+        'Assicurazione': g.insuranceConsent ? 'SI' : 'NO',
+        'Volo Arrivo - Compagnia': arrFlight?.airline || '',
+        'Volo Arrivo - Numero': arrFlight?.flightNumber || '',
+        'Volo Arrivo - Da': arrFlight?.departureAirport || '',
+        'Volo Arrivo - A': arrFlight?.arrivalAirport || '',
+        'Volo Arrivo - Data': arrFlight?.arrivalDay ? new Date(arrFlight.arrivalDay).toISOString().split('T')[0] : arrFlight?.date ? new Date(arrFlight.date).toISOString().split('T')[0] : '',
+        'Volo Arrivo - Ora Arrivo': arrFlight?.arrivalTime || '',
+        'Volo Arrivo - Ora Partenza': arrFlight?.departureTime || '',
+        'Volo Partenza - Compagnia': depFlight?.airline || '',
+        'Volo Partenza - Numero': depFlight?.flightNumber || '',
+        'Volo Partenza - Da': depFlight?.departureAirport || '',
+        'Volo Partenza - A': depFlight?.arrivalAirport || '',
+        'Volo Partenza - Data': depFlight?.date ? new Date(depFlight.date).toISOString().split('T')[0] : '',
+        'Volo Partenza - Ora Partenza': depFlight?.departureTime || '',
+        'Accompagnatori': g.companions?.map(c => `${c.fullName}${c.relationship ? ` (${c.relationship})` : ''}`).join('; ') || '',
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(guestRows);
+    const colWidths = Object.keys(guestRows[0] || {}).map(key => ({
+      wch: Math.max(key.length, ...guestRows.map(r => String(r[key] || '').length).slice(0, 20)) + 2
+    }));
+    ws['!cols'] = colWidths;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Ospiti');
+
+    const instrRows = [
+      { 'Istruzioni Re-Import': '📋 ISTRUZIONI PER AGGIORNAMENTO MASSIVO' },
+      { 'Istruzioni Re-Import': '' },
+      { 'Istruzioni Re-Import': '1. Modifica i dati nel foglio "Ospiti" — NON eliminare o modificare la colonna ID' },
+      { 'Istruzioni Re-Import': '2. Per aggiornare un ospite esistente: mantieni il suo ID e modifica i campi desiderati' },
+      { 'Istruzioni Re-Import': '3. Per aggiungere un nuovo ospite: lascia la cella ID vuota, compila Nome e Cognome' },
+      { 'Istruzioni Re-Import': '4. Per cancellare un campo: svuota la cella (lascia vuota)' },
+      { 'Istruzioni Re-Import': '5. Valori SI/NO per campi booleani (Privacy, WhatsApp, Attestazione Salute, ecc.)' },
+      { 'Istruzioni Re-Import': '6. Date in formato AAAA-MM-GG (es. 2026-06-18)' },
+      { 'Istruzioni Re-Import': '7. Accompagnatori separati da punto e virgola: "Mario Rossi (Moglie); Laura Bianchi (Figlia)"' },
+      { 'Istruzioni Re-Import': '8. Reimporta il file dalla pagina Ospiti usando il bottone "📤 Import Excel"' },
+      { 'Istruzioni Re-Import': '' },
+      { 'Istruzioni Re-Import': '⚠️ La colonna ID è fondamentale per aggiornare i record esistenti.' },
+      { 'Istruzioni Re-Import': '   Senza ID, il sistema creerà un nuovo ospite.' },
+    ];
+    const wsInstr = XLSX.utils.json_to_sheet(instrRows);
+    wsInstr['!cols'] = [{ wch: 90 }];
+    XLSX.utils.book_append_sheet(wb, wsInstr, 'Istruzioni');
+
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const fileName = `ospiti_export_${new Date().toISOString().split('T')[0]}.xlsx`;
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.document');
+    res.send(Buffer.from(buf));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET single guest
 router.get('/:id', async (req, res) => {
   try {
@@ -157,132 +265,6 @@ router.delete('/:guestId/flights/:flightId', async (req, res) => {
   try {
     await prisma.guestFlight.delete({ where: { id: req.params.flightId } });
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================================
-// EXPORT: Download all guests as Excel
-// ============================================================
-router.get('/export', async (req, res) => {
-  try {
-    const XLSX = (await import('xlsx')).default;
-    const guests = await prisma.guest.findMany({
-      include: { companions: true, flights: true },
-      orderBy: { lastName: 'asc' }
-    });
-
-    // ── Main guests sheet ──
-    const guestRows = guests.map(g => {
-      const arrFlight = g.flights?.find(f => f.direction === 'ARRIVAL');
-      const depFlight = g.flights?.find(f => f.direction === 'DEPARTURE');
-      return {
-        'ID': g.id,
-        'Nome': g.firstName,
-        'Cognome': g.lastName,
-        'Nome Completo': g.fullName || '',
-        'Email': g.email || '',
-        'Telefono': g.phone || '',
-        'Tel. Ufficio': g.phoneOffice || '',
-        'Indirizzo': g.mailingAddress || '',
-        'Città': g.city || '',
-        'Stato': g.state || '',
-        'CAP': g.zip || '',
-        // Hotel
-        'N. Camere': g.hotelRoomsNeeded || '',
-        'Tipo Camera': g.roomType || '',
-        'Check-in': g.checkInDate ? new Date(g.checkInDate).toISOString().split('T')[0] : '',
-        'Check-out': g.checkOutDate ? new Date(g.checkOutDate).toISOString().split('T')[0] : '',
-        'Upgrade Hotel': g.hotelUpgrade || '',
-        // Passport
-        'Paese Passaporto': g.passportCountry || '',
-        'N. Passaporto': g.passportNumber || '',
-        'Scadenza Passaporto': g.passportExpiry || '',
-        'Data Nascita': g.dateOfBirth || '',
-        // Dietary & Medical
-        'Restrizioni Alimentari': g.dietaryRestrictions || '',
-        'Esigenze Mobilità': g.mobilityNeeds || '',
-        'Info Mediche': g.medicalInfo || '',
-        'Attestazione Salute': g.healthAttestation ? 'SI' : 'NO',
-        // Assistant
-        'Nome Assistente': g.assistantName || '',
-        'Email Assistente': g.assistantEmail || '',
-        'Tel. Assistente': g.assistantPhone || '',
-        // Emergency
-        'Contatto Emergenza': g.emergencyName || '',
-        'Tel. Emergenza': g.emergencyPhone || '',
-        'Email Emergenza': g.emergencyEmail || '',
-        'Relazione Emergenza': g.emergencyRelation || '',
-        // Bio & misc
-        'Bio': g.bio || '',
-        'WhatsApp Opt-in': g.whatsappOptIn ? 'SI' : 'NO',
-        'Richieste Speciali': g.specialRequests || '',
-        'Note': g.notes || '',
-        // Consent
-        'Privacy': g.privacyConsent ? 'SI' : 'NO',
-        'Diritti Immagine': g.imageRightsConsent ? 'SI' : 'NO',
-        'Responsabilità': g.liabilityConsent ? 'SI' : 'NO',
-        'Cancellazione': g.cancellationConsent ? 'SI' : 'NO',
-        'Assicurazione': g.insuranceConsent ? 'SI' : 'NO',
-        // Flights (flattened)
-        'Volo Arrivo - Compagnia': arrFlight?.airline || '',
-        'Volo Arrivo - Numero': arrFlight?.flightNumber || '',
-        'Volo Arrivo - Da': arrFlight?.departureAirport || '',
-        'Volo Arrivo - A': arrFlight?.arrivalAirport || '',
-        'Volo Arrivo - Data': arrFlight?.arrivalDay ? new Date(arrFlight.arrivalDay).toISOString().split('T')[0] : arrFlight?.date ? new Date(arrFlight.date).toISOString().split('T')[0] : '',
-        'Volo Arrivo - Ora Arrivo': arrFlight?.arrivalTime || '',
-        'Volo Arrivo - Ora Partenza': arrFlight?.departureTime || '',
-        'Volo Partenza - Compagnia': depFlight?.airline || '',
-        'Volo Partenza - Numero': depFlight?.flightNumber || '',
-        'Volo Partenza - Da': depFlight?.departureAirport || '',
-        'Volo Partenza - A': depFlight?.arrivalAirport || '',
-        'Volo Partenza - Data': depFlight?.date ? new Date(depFlight.date).toISOString().split('T')[0] : '',
-        'Volo Partenza - Ora Partenza': depFlight?.departureTime || '',
-        // Companions (concatenated)
-        'Accompagnatori': g.companions?.map(c => `${c.fullName}${c.relationship ? ` (${c.relationship})` : ''}`).join('; ') || '',
-      };
-    });
-
-    const ws = XLSX.utils.json_to_sheet(guestRows);
-
-    // Auto-size columns
-    const colWidths = Object.keys(guestRows[0] || {}).map(key => ({
-      wch: Math.max(key.length, ...guestRows.map(r => String(r[key] || '').length).slice(0, 20)) + 2
-    }));
-    ws['!cols'] = colWidths;
-
-    // Freeze header row
-    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Ospiti');
-
-    // ── Instructions sheet for re-import ──
-    const instrRows = [
-      { 'Istruzioni Re-Import': '📋 ISTRUZIONI PER AGGIORNAMENTO MASSIVO' },
-      { 'Istruzioni Re-Import': '' },
-      { 'Istruzioni Re-Import': '1. Modifica i dati nel foglio "Ospiti" — NON eliminare o modificare la colonna ID' },
-      { 'Istruzioni Re-Import': '2. Per aggiornare un ospite esistente: mantieni il suo ID e modifica i campi desiderati' },
-      { 'Istruzioni Re-Import': '3. Per aggiungere un nuovo ospite: lascia la cella ID vuota, compila Nome e Cognome' },
-      { 'Istruzioni Re-Import': '4. Per cancellare un campo: svuota la cella (lascia vuota)' },
-      { 'Istruzioni Re-Import': '5. Valori SI/NO per campi booleani (Privacy, WhatsApp, Attestazione Salute, ecc.)' },
-      { 'Istruzioni Re-Import': '6. Date in formato AAAA-MM-GG (es. 2026-06-18)' },
-      { 'Istruzioni Re-Import': '7. Accompagnatori separati da punto e virgola: "Mario Rossi (Moglie); Laura Bianchi (Figlia)"' },
-      { 'Istruzioni Re-Import': '8. Reimporta il file dalla pagina Ospiti usando il bottone "📤 Import Excel"' },
-      { 'Istruzioni Re-Import': '' },
-      { 'Istruzioni Re-Import': '⚠️ La colonna ID è fondamentale per aggiornare i record esistenti.' },
-      { 'Istruzioni Re-Import': '   Senza ID, il sistema creerà un nuovo ospite.' },
-    ];
-    const wsInstr = XLSX.utils.json_to_sheet(instrRows);
-    wsInstr['!cols'] = [{ wch: 90 }];
-    XLSX.utils.book_append_sheet(wb, wsInstr, 'Istruzioni');
-
-    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    const fileName = `ospiti_export_${new Date().toISOString().split('T')[0]}.xlsx`;
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.document');
-    res.send(Buffer.from(buf));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
