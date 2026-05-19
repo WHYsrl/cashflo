@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../utils/api.js';
 import { formatDate } from '../utils/format.js';
@@ -9,6 +9,70 @@ function useGuestAuth() {
   useEffect(() => { if (!token) navigate('/guests/login'); }, [token, navigate]);
   return token;
 }
+
+/* ── i18n labels ── */
+const L = {
+  en: {
+    title: 'Report & Insights',
+    guests: 'Guests', totalPeople: 'Total people', rooms: 'Rooms',
+    withArrival: 'With arrival flight', dietaryRestrictions: 'Dietary restrictions', mobilityNeeds: 'Mobility needs',
+    alerts: 'Alerts & Warnings', critical: 'critical',
+    arrivalsByDay: 'Arrivals by day', people: 'people',
+    transferGrouping: 'Transfer grouping', timeSlots: 'time slots',
+    transferDesc: 'Guests arriving in the same time slot who can share a transfer.',
+    slot: 'slot', total: 'Total',
+    hotelCheckin: 'Hotel — Check-in by day', noCheckin: 'No check-in date registered.',
+    roomType: 'Room type', nRooms: 'Rooms', checkout: 'Check-out', requests: 'Requests',
+    dietTitle: 'Dietary restrictions', attention: 'attention', noDiet: 'No dietary restrictions registered.',
+    dietCol: 'Restrictions / Allergies',
+    specialRequests: 'Special requests', noSpecial: 'No special requests.',
+    requestCol: 'Request',
+    dataCompleteness: 'Data completeness',
+    email: 'Email', arrivalFlight: 'Arrival flight', hotelRoom: 'Hotel room', passport: 'Passport', missing: 'Missing',
+    aiTitle: 'AI Insights (deep analysis)', aiDesc: 'Generate an AI-powered analysis of guest data with operational suggestions for coordinating suppliers, transport and logistics.',
+    aiBtn: '🔍 Generate AI Insights', aiBtnLoading: '⏳ AI Analysis in progress...',
+    guest: 'Guest', pax: 'Pax', flight: 'Flight', arrivalTime: 'Arrival time', from: 'From',
+    translateBtn: '🌐 Traduci in italiano', translating: '⏳ Traduzione AI...', translated: '✅ Tradotto',
+    lateArrival: 'arrives at {time} — night arrival, check transport and late check-in',
+    mobility: '{name}: {needs} — coordinate accessible transport and suitable room',
+    medical: '{name}: medical info — {info}',
+    noFlight: '{count} guests without arrival flight: {names}',
+    noRoom: '{count} guests without room type: {names}',
+    noPassport: '{count} guests without passport: {names}',
+    noPassportMany: '{count} guests without passport data',
+    companions: 'Companions',
+  },
+  it: {
+    title: 'Report & Insights',
+    guests: 'Ospiti', totalPeople: 'Persone totali', rooms: 'Camere',
+    withArrival: 'Con volo arrivo', dietaryRestrictions: 'Restrizioni alimentari', mobilityNeeds: 'Esigenze mobilità',
+    alerts: 'Alert & Attenzioni', critical: 'critici',
+    arrivalsByDay: 'Arrivi per giorno', people: 'persone',
+    transferGrouping: 'Raggruppamento trasferimenti', timeSlots: 'fasce orarie',
+    transferDesc: 'Ospiti che arrivano nella stessa fascia oraria e possono condividere il trasferimento.',
+    slot: 'fascia', total: 'Totale',
+    hotelCheckin: 'Hotel — Check-in per giorno', noCheckin: 'Nessuna data di check-in registrata.',
+    roomType: 'Tipo camera', nRooms: 'Camere', checkout: 'Check-out', requests: 'Richieste',
+    dietTitle: 'Restrizioni alimentari', attention: 'attenzione', noDiet: 'Nessuna restrizione alimentare registrata.',
+    dietCol: 'Restrizioni / Allergie',
+    specialRequests: 'Richieste speciali', noSpecial: 'Nessuna richiesta speciale.',
+    requestCol: 'Richiesta',
+    dataCompleteness: 'Completezza dati',
+    email: 'Email', arrivalFlight: 'Volo arrivo', hotelRoom: 'Camera hotel', passport: 'Passaporto', missing: 'Mancanti',
+    aiTitle: 'AI Insights (analisi avanzata)', aiDesc: 'Genera un\'analisi AI approfondita dei dati ospiti con suggerimenti operativi per coordinare fornitori, trasporti e logistica.',
+    aiBtn: '🔍 Genera Insights AI', aiBtnLoading: '⏳ Analisi AI in corso...',
+    guest: 'Ospite', pax: 'Pax', flight: 'Volo', arrivalTime: 'Orario arrivo', from: 'Da',
+    translateBtn: '🌐 Translate to English', translating: '⏳ AI Translation...', translated: '✅ Translated',
+    lateArrival: 'arriva alle {time} — arrivo notturno, verificare trasporto e check-in tardivo',
+    mobility: '{name}: {needs} — coordinare trasporto accessibile e camera adeguata',
+    medical: '{name}: info mediche — {info}',
+    noFlight: '{count} ospiti senza volo di arrivo registrato: {names}',
+    noRoom: '{count} ospiti senza tipo camera assegnata: {names}',
+    noPassport: '{count} ospiti senza passaporto: {names}',
+    noPassportMany: '{count} ospiti senza dati passaporto',
+    companions: 'Accompagnatori',
+  }
+};
 
 /* ── Expandable Section ── */
 function Section({ icon, title, count, badge, badgeColor, children, defaultOpen = false }) {
@@ -73,15 +137,39 @@ function AlertBadge({ type, children }) {
 export default function GuestInsights() {
   const token = useGuestAuth();
   const navigate = useNavigate();
-  const [guests, setGuests] = useState([]);
+  const [rawGuests, setRawGuests] = useState([]);
+  const [translatedGuests, setTranslatedGuests] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [language, setLanguage] = useState('it');
+  const [translating, setTranslating] = useState(false);
   const [aiInsights, setAiInsights] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
 
+  const t = L[language];
+
   useEffect(() => {
-    if (token) api.getGuests(token).then(setGuests).catch(() => navigate('/guests/login')).finally(() => setLoading(false));
+    if (token) api.getGuests(token).then(setRawGuests).catch(() => navigate('/guests/login')).finally(() => setLoading(false));
   }, [token]);
+
+  // Use translated guests when Italian is selected and translation is available
+  const guests = (language === 'it' && translatedGuests) ? translatedGuests : rawGuests;
+
+  // Auto-translate when switching to Italian
+  const handleLanguageChange = useCallback(async (lang) => {
+    setLanguage(lang);
+    if (lang === 'it' && !translatedGuests && rawGuests.length > 0) {
+      setTranslating(true);
+      try {
+        const result = await api.translateGuestFields(token);
+        setTranslatedGuests(result);
+      } catch (e) {
+        console.error('Translation failed:', e);
+        // fallback: use raw guests
+      }
+      setTranslating(false);
+    }
+  }, [translatedGuests, rawGuests, token]);
 
   /* ── Computed data ── */
   const stats = useMemo(() => {
@@ -90,9 +178,9 @@ export default function GuestInsights() {
     const totalRooms = guests.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0);
     const withArrival = guests.filter(g => g.flights?.some(f => f.direction === 'ARRIVAL'));
     const withDeparture = guests.filter(g => g.flights?.some(f => f.direction === 'DEPARTURE'));
-    const withDiet = guests.filter(g => g.dietaryRestrictions && g.dietaryRestrictions.toLowerCase() !== 'none');
-    const withMobility = guests.filter(g => g.mobilityNeeds && g.mobilityNeeds.toLowerCase() !== 'none');
-    const withMedical = guests.filter(g => g.medicalInfo && g.medicalInfo.toLowerCase() !== 'none');
+    const withDiet = guests.filter(g => g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim()));
+    const withMobility = guests.filter(g => g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim()));
+    const withMedical = guests.filter(g => g.medicalInfo && !['none','n/a','no'].includes(g.medicalInfo.toLowerCase().trim()));
     const withSpecialReq = guests.filter(g => g.specialRequests);
     const missingPassport = guests.filter(g => !g.passportNumber);
     const missingFlight = guests.filter(g => !g.flights?.some(f => f.direction === 'ARRIVAL'));
@@ -128,55 +216,51 @@ export default function GuestInsights() {
 
   /* ── Dietary restrictions ── */
   const dietaryList = useMemo(() => {
-    return guests.filter(g => g.dietaryRestrictions && g.dietaryRestrictions.toLowerCase() !== 'none')
-      .map(g => ({ id: g.id, name: `${g.firstName} ${g.lastName}`, diet: g.dietaryRestrictions }));
+    return guests.filter(g => g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim()))
+      .map(g => ({ id: g.id, name: `${g.firstName} ${g.lastName}`, diet: g.dietaryRestrictions, companions: g.companions }));
   }, [guests]);
 
   /* ── Alerts ── */
   const alerts = useMemo(() => {
     if (!guests.length) return [];
     const list = [];
-    // Late/early arrivals
     guests.forEach(g => {
       const arr = g.flights?.find(f => f.direction === 'ARRIVAL');
       if (arr?.arrivalTime) {
         const h = parseInt(arr.arrivalTime.split(':')[0]) || parseInt(arr.arrivalTime);
-        if (h >= 22 || h <= 5) list.push({ type: 'warning', icon: '🌙', text: `${g.firstName} ${g.lastName} arriva alle ${arr.arrivalTime} — arrivo notturno, verificare trasporto e check-in tardivo`, guestId: g.id });
+        if (h >= 22 || h <= 5) list.push({ type: 'warning', icon: '🌙', text: t.lateArrival.replace('{time}', arr.arrivalTime).replace('{name}', `${g.firstName} ${g.lastName}`), name: `${g.firstName} ${g.lastName}`, guestId: g.id });
       }
     });
-    // Mobility needs
     guests.forEach(g => {
-      if (g.mobilityNeeds && g.mobilityNeeds.toLowerCase() !== 'none') {
-        list.push({ type: 'danger', icon: '♿', text: `${g.firstName} ${g.lastName}: ${g.mobilityNeeds} — coordinare trasporto accessibile e camera adeguata`, guestId: g.id });
+      if (g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim())) {
+        list.push({ type: 'danger', icon: '♿', text: t.mobility.replace('{name}', `${g.firstName} ${g.lastName}`).replace('{needs}', g.mobilityNeeds), guestId: g.id });
       }
     });
-    // Medical
     guests.forEach(g => {
-      if (g.medicalInfo && g.medicalInfo.toLowerCase() !== 'none') {
-        list.push({ type: 'danger', icon: '🏥', text: `${g.firstName} ${g.lastName}: info mediche — ${g.medicalInfo.substring(0, 80)}`, guestId: g.id });
+      if (g.medicalInfo && !['none','n/a','no'].includes(g.medicalInfo.toLowerCase().trim())) {
+        list.push({ type: 'danger', icon: '🏥', text: t.medical.replace('{name}', `${g.firstName} ${g.lastName}`).replace('{info}', g.medicalInfo.substring(0, 80)), guestId: g.id });
       }
     });
-    // Missing critical data
     if (stats?.missingFlight.length > 0) {
-      list.push({ type: 'info', icon: '✈️', text: `${stats.missingFlight.length} ospiti senza volo di arrivo registrato: ${stats.missingFlight.map(g => g.lastName).join(', ')}` });
+      list.push({ type: 'info', icon: '✈️', text: t.noFlight.replace('{count}', stats.missingFlight.length).replace('{names}', stats.missingFlight.map(g => g.lastName).join(', ')) });
     }
     if (stats?.missingRoom.length > 0) {
-      list.push({ type: 'info', icon: '🏨', text: `${stats.missingRoom.length} ospiti senza tipo camera assegnata: ${stats.missingRoom.map(g => g.lastName).join(', ')}` });
+      list.push({ type: 'info', icon: '🏨', text: t.noRoom.replace('{count}', stats.missingRoom.length).replace('{names}', stats.missingRoom.map(g => g.lastName).join(', ')) });
     }
     if (stats?.missingPassport.length > 0 && stats.missingPassport.length <= 10) {
-      list.push({ type: 'warning', icon: '🛂', text: `${stats.missingPassport.length} ospiti senza passaporto: ${stats.missingPassport.map(g => g.lastName).join(', ')}` });
+      list.push({ type: 'warning', icon: '🛂', text: t.noPassport.replace('{count}', stats.missingPassport.length).replace('{names}', stats.missingPassport.map(g => g.lastName).join(', ')) });
     } else if (stats?.missingPassport.length > 10) {
-      list.push({ type: 'warning', icon: '🛂', text: `${stats.missingPassport.length} ospiti senza dati passaporto` });
+      list.push({ type: 'warning', icon: '🛂', text: t.noPassportMany.replace('{count}', stats.missingPassport.length) });
     }
     return list;
-  }, [guests, stats]);
+  }, [guests, stats, t]);
 
-  /* ── Same-time arrivals (transfer grouping opportunities) ── */
+  /* ── Same-time arrivals ── */
   const transferGroups = useMemo(() => {
     const timeMap = {};
     guests.forEach(g => {
       const arr = g.flights?.find(f => f.direction === 'ARRIVAL');
-      if (!arr?.arrivalTime || !arr?.arrivalDay && !arr?.date) return;
+      if (!arr?.arrivalTime || (!arr?.arrivalDay && !arr?.date)) return;
       const day = arr.arrivalDay || arr.date;
       const hour = arr.arrivalTime.split(':')[0] || arr.arrivalTime.substring(0, 2);
       const key = `${day}_${hour}`;
@@ -215,26 +299,35 @@ export default function GuestInsights() {
 
   return (
     <div>
-      <h1 className="page-title">Report & Insights</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <h1 className="page-title" style={{ margin: 0 }}>{t.title}</h1>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {translating && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>⏳ Traduzione AI in corso...</span>}
+          <select className="form-select" style={{ width: 'auto' }} value={language} onChange={e => handleLanguageChange(e.target.value)}>
+            <option value="it">Italiano</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+      </div>
 
       {/* ── KPI Cards ── */}
       <div className="stats-grid" style={{ marginBottom: 20 }}>
-        <div className="stat-card"><div className="stat-label">Ospiti</div><div className="stat-value">{guests.length}</div></div>
-        <div className="stat-card"><div className="stat-label">Persone totali</div><div className="stat-value">{stats.totalPeople}</div></div>
-        <div className="stat-card"><div className="stat-label">Camere</div><div className="stat-value">{stats.totalRooms}</div></div>
-        <div className="stat-card"><div className="stat-label">Con volo arrivo</div><div className="stat-value">{stats.withArrival.length}<span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>/{guests.length}</span></div></div>
-        <div className="stat-card"><div className="stat-label">Restrizioni alimentari</div><div className="stat-value" style={{ color: stats.withDiet.length > 0 ? 'var(--warning)' : undefined }}>{stats.withDiet.length}</div></div>
-        <div className="stat-card"><div className="stat-label">Esigenze mobilità</div><div className="stat-value" style={{ color: stats.withMobility.length > 0 ? 'var(--danger)' : undefined }}>{stats.withMobility.length}</div></div>
+        <div className="stat-card"><div className="stat-label">{t.guests}</div><div className="stat-value">{guests.length}</div></div>
+        <div className="stat-card"><div className="stat-label">{t.totalPeople}</div><div className="stat-value">{stats.totalPeople}</div></div>
+        <div className="stat-card"><div className="stat-label">{t.rooms}</div><div className="stat-value">{stats.totalRooms}</div></div>
+        <div className="stat-card"><div className="stat-label">{t.withArrival}</div><div className="stat-value">{stats.withArrival.length}<span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>/{guests.length}</span></div></div>
+        <div className="stat-card"><div className="stat-label">{t.dietaryRestrictions}</div><div className="stat-value" style={{ color: stats.withDiet.length > 0 ? 'var(--warning)' : undefined }}>{stats.withDiet.length}</div></div>
+        <div className="stat-card"><div className="stat-label">{t.mobilityNeeds}</div><div className="stat-value" style={{ color: stats.withMobility.length > 0 ? 'var(--danger)' : undefined }}>{stats.withMobility.length}</div></div>
       </div>
 
       {/* ── Alerts ── */}
       {alerts.length > 0 && (
-        <Section icon="🚨" title="Alert & Attenzioni" count={alerts.length} badge={`${alerts.filter(a => a.type === 'danger').length} critici`} badgeColor="var(--danger)" defaultOpen={true}>
+        <Section icon="🚨" title={t.alerts} count={alerts.length} badge={`${alerts.filter(a => a.type === 'danger').length} ${t.critical}`} badgeColor="var(--danger)" defaultOpen={true}>
           {alerts.map((a, i) => (
             <AlertBadge key={i} type={a.type}>
               <span style={{ marginRight: 6 }}>{a.icon}</span>
               {a.guestId ? (
-                <span style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => navigate(`/guests/${a.guestId}`)}>{a.text}</span>
+                <span style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => navigate(`/guests/${a.guestId}`)}>{a.name ? `${a.name}: ` : ''}{a.text}</span>
               ) : a.text}
             </AlertBadge>
           ))}
@@ -242,25 +335,24 @@ export default function GuestInsights() {
       )}
 
       {/* ── Arrivals by Day ── */}
-      <Section icon="✈️" title="Arrivi per giorno" count={stats.withArrival.length} defaultOpen={true}>
-        {arrivalsByDay.length === 0 ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Nessun volo di arrivo registrato.</div> : (
+      <Section icon="✈️" title={t.arrivalsByDay} count={stats.withArrival.length} defaultOpen={true}>
+        {arrivalsByDay.length === 0 ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>—</div> : (
           arrivalsByDay.map(([day, entries]) => (
             <div key={day} style={{ marginBottom: 16 }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, padding: '4px 8px', background: '#f1f5f9', borderRadius: 4 }}>
-                📅 {formatDate(day)} — {entries.reduce((s, e) => s + 1 + (e.guest.companions?.length || 0), 0)} persone
+                📅 {formatDate(day)} — {entries.reduce((s, e) => s + 1 + (e.guest.companions?.length || 0), 0)} {t.people}
               </div>
               <MiniTable
-                columns={['Ospite', 'Pax', 'Volo', 'Orario arrivo', 'Da']}
+                columns={[t.guest, t.pax, t.flight, t.arrivalTime, t.from]}
                 rows={entries.sort((a, b) => (a.flight.arrivalTime || '').localeCompare(b.flight.arrivalTime || '')).map(({ guest: g, flight: f }) => ({
                   cells: [
-                    { value: <><span style={{ fontWeight: 500 }}>{g.firstName} {g.lastName}</span>{g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}> + {g.companions.map(c => c.fullName).join(', ')}</span>}</>, style: {} },
+                    { value: <><span style={{ fontWeight: 500 }}>★ {g.firstName} {g.lastName}</span>{g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}><br/>{g.companions.map(c => `  👤 ${c.fullName}`).join(', ')}</span>}</>, style: {} },
                     { value: 1 + (g.companions?.length || 0), style: { textAlign: 'center' } },
                     { value: `${f.airline || ''} ${f.flightNumber || ''}`.trim() || '-', style: { fontSize: 12 } },
                     { value: f.arrivalTime || '-', style: { fontWeight: 600 } },
                     { value: f.departureAirport || '-', style: { fontSize: 12 } }
                   ]
                 }))}
-                onRowClick={(row) => {}}
               />
             </div>
           ))
@@ -269,23 +361,30 @@ export default function GuestInsights() {
 
       {/* ── Transfer Grouping ── */}
       {transferGroups.length > 0 && (
-        <Section icon="🚐" title="Raggruppamento trasferimenti" count={transferGroups.length + ' fasce orarie'}>
-          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>Ospiti che arrivano nella stessa fascia oraria e possono condividere il trasferimento.</p>
+        <Section icon="🚐" title={t.transferGrouping} count={transferGroups.length + ' ' + t.timeSlots}>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>{t.transferDesc}</p>
           {transferGroups.map((group, i) => (
             <div key={i} style={{ marginBottom: 12, padding: 12, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>📅 {formatDate(group.day)} — fascia {group.hour}</div>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>📅 {formatDate(group.day)} — {t.slot} {group.hour}</div>
               <div style={{ fontSize: 13 }}>
                 {group.guests.map(({ guest: g, flight: f }, j) => (
-                  <div key={j} style={{ display: 'flex', gap: 12, padding: '2px 0' }}>
-                    <span style={{ fontWeight: 500, minWidth: 150 }}>{g.firstName} {g.lastName}</span>
-                    <span style={{ color: 'var(--text-secondary)' }}>{f.airline} {f.flightNumber} — {f.arrivalTime}</span>
-                    <span style={{ color: 'var(--text-secondary)' }}>({1 + (g.companions?.length || 0)} pax)</span>
-                    {g.roomType && <span style={{ color: 'var(--text-secondary)' }}>→ {g.roomType}</span>}
+                  <div key={j} style={{ padding: '2px 0' }}>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <span style={{ fontWeight: 500, minWidth: 150 }}>★ {g.firstName} {g.lastName}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{f.airline} {f.flightNumber} — {f.arrivalTime}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>({1 + (g.companions?.length || 0)} pax)</span>
+                      {g.roomType && <span style={{ color: 'var(--text-secondary)' }}>→ {g.roomType}</span>}
+                    </div>
+                    {g.companions?.length > 0 && (
+                      <div style={{ paddingLeft: 20, fontSize: 12, color: 'var(--text-secondary)' }}>
+                        {g.companions.map((c, k) => <span key={k}>👤 {c.fullName}{k < g.companions.length - 1 ? ', ' : ''}</span>)}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
               <div style={{ fontSize: 12, color: 'var(--success)', fontWeight: 600, marginTop: 4 }}>
-                Totale: {group.guests.reduce((s, { guest: g }) => s + 1 + (g.companions?.length || 0), 0)} persone
+                {t.total}: {group.guests.reduce((s, { guest: g }) => s + 1 + (g.companions?.length || 0), 0)} {t.people}
               </div>
             </div>
           ))}
@@ -293,18 +392,18 @@ export default function GuestInsights() {
       )}
 
       {/* ── Hotel / Check-in ── */}
-      <Section icon="🏨" title="Hotel — Check-in per giorno" count={checkinByDay.reduce((s, [, gs]) => s + gs.length, 0)}>
-        {checkinByDay.length === 0 ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Nessuna data di check-in registrata.</div> : (
+      <Section icon="🏨" title={t.hotelCheckin} count={checkinByDay.reduce((s, [, gs]) => s + gs.length, 0)}>
+        {checkinByDay.length === 0 ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t.noCheckin}</div> : (
           checkinByDay.map(([day, gs]) => (
             <div key={day} style={{ marginBottom: 16 }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, padding: '4px 8px', background: '#f1f5f9', borderRadius: 4 }}>
-                📅 Check-in {formatDate(day)} — {gs.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0)} camere, {gs.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0)} persone
+                📅 Check-in {formatDate(day)} — {gs.reduce((s, g) => s + (g.hotelRoomsNeeded || 0), 0)} {t.rooms.toLowerCase()}, {gs.reduce((s, g) => s + 1 + (g.companions?.length || 0), 0)} {t.people}
               </div>
               <MiniTable
-                columns={['Ospite', 'Pax', 'Tipo camera', 'Camere', 'Check-out', 'Richieste']}
+                columns={[t.guest, t.pax, t.roomType, t.nRooms, t.checkout, t.requests]}
                 rows={gs.map(g => ({
                   cells: [
-                    { value: <span style={{ fontWeight: 500 }}>{g.firstName} {g.lastName}</span> },
+                    { value: <><span style={{ fontWeight: 500 }}>★ {g.firstName} {g.lastName}</span>{g.companions?.length > 0 && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}><br/>{g.companions.map(c => `  👤 ${c.fullName}`).join(', ')}</span>}</> },
                     { value: 1 + (g.companions?.length || 0), style: { textAlign: 'center' } },
                     { value: g.roomType || '-', style: { fontSize: 12 } },
                     { value: g.hotelRoomsNeeded || '-', style: { textAlign: 'center' } },
@@ -319,28 +418,39 @@ export default function GuestInsights() {
       </Section>
 
       {/* ── Dietary ── */}
-      <Section icon="🍽️" title="Restrizioni alimentari" count={dietaryList.length} badge={dietaryList.length > 0 ? 'attenzione' : null} badgeColor="var(--warning)">
-        {dietaryList.length === 0 ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Nessuna restrizione alimentare registrata.</div> : (
+      <Section icon="🍽️" title={t.dietTitle} count={dietaryList.length} badge={dietaryList.length > 0 ? t.attention : null} badgeColor="var(--warning)">
+        {dietaryList.length === 0 ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t.noDiet}</div> : (
           <MiniTable
-            columns={['Ospite', 'Restrizioni / Allergie']}
-            rows={dietaryList.map(d => ({
-              cells: [
-                { value: <span style={{ fontWeight: 500, cursor: 'pointer', color: 'var(--primary)' }} onClick={() => navigate(`/guests/${d.id}`)}>{d.name}</span> },
-                { value: d.diet, style: { fontSize: 13 } }
-              ]
-            }))}
+            columns={[t.guest, t.dietCol]}
+            rows={dietaryList.flatMap(d => {
+              const rows = [
+                { cells: [
+                  { value: <span style={{ fontWeight: 500, cursor: 'pointer', color: 'var(--primary)' }} onClick={() => navigate(`/guests/${d.id}`)}>★ {d.name}</span> },
+                  { value: d.diet, style: { fontSize: 13 } }
+                ] }
+              ];
+              if (d.companions?.length) {
+                d.companions.forEach(c => {
+                  rows.push({ cells: [
+                    { value: <span style={{ paddingLeft: 16, fontSize: 12, color: 'var(--text-secondary)' }}>👤 {c.fullName}</span> },
+                    { value: <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>↑</span> }
+                  ] });
+                });
+              }
+              return rows;
+            })}
           />
         )}
       </Section>
 
       {/* ── Special Requests ── */}
-      <Section icon="⚠️" title="Richieste speciali" count={stats.withSpecialReq.length}>
-        {stats.withSpecialReq.length === 0 ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Nessuna richiesta speciale.</div> : (
+      <Section icon="⚠️" title={t.specialRequests} count={stats.withSpecialReq.length}>
+        {stats.withSpecialReq.length === 0 ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t.noSpecial}</div> : (
           <MiniTable
-            columns={['Ospite', 'Richiesta']}
+            columns={[t.guest, t.requestCol]}
             rows={stats.withSpecialReq.map(g => ({
               cells: [
-                { value: <span style={{ fontWeight: 500, cursor: 'pointer', color: 'var(--primary)' }} onClick={() => navigate(`/guests/${g.id}`)}>{g.firstName} {g.lastName}</span> },
+                { value: <span style={{ fontWeight: 500, cursor: 'pointer', color: 'var(--primary)' }} onClick={() => navigate(`/guests/${g.id}`)}>★ {g.firstName} {g.lastName}</span> },
                 { value: g.specialRequests, style: { fontSize: 13 } }
               ]
             }))}
@@ -349,13 +459,13 @@ export default function GuestInsights() {
       </Section>
 
       {/* ── Data Completeness ── */}
-      <Section icon="📊" title="Completezza dati" badge={`${Math.round(((guests.length - stats.missingEmail.length - stats.missingFlight.length - stats.missingRoom.length) / (guests.length * 3)) * 100)}%`} badgeColor="var(--primary)">
+      <Section icon="📊" title={t.dataCompleteness} badge={`${Math.round(((guests.length - stats.missingEmail.length - stats.missingFlight.length - stats.missingRoom.length) / (guests.length * 3)) * 100)}%`} badgeColor="var(--primary)">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
           {[
-            { label: 'Email', have: guests.length - stats.missingEmail.length, total: guests.length, missing: stats.missingEmail },
-            { label: 'Volo arrivo', have: stats.withArrival.length, total: guests.length, missing: stats.missingFlight },
-            { label: 'Camera hotel', have: guests.length - stats.missingRoom.length, total: guests.length, missing: stats.missingRoom },
-            { label: 'Passaporto', have: guests.length - stats.missingPassport.length, total: guests.length, missing: stats.missingPassport },
+            { label: t.email, have: guests.length - stats.missingEmail.length, total: guests.length, missing: stats.missingEmail },
+            { label: t.arrivalFlight, have: stats.withArrival.length, total: guests.length, missing: stats.missingFlight },
+            { label: t.hotelRoom, have: guests.length - stats.missingRoom.length, total: guests.length, missing: stats.missingRoom },
+            { label: t.passport, have: guests.length - stats.missingPassport.length, total: guests.length, missing: stats.missingPassport },
           ].map((item, i) => {
             const pct = Math.round((item.have / item.total) * 100);
             return (
@@ -369,7 +479,7 @@ export default function GuestInsights() {
                 </div>
                 {item.missing.length > 0 && item.missing.length <= 6 && (
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                    Mancanti: {item.missing.map(g => g.lastName).join(', ')}
+                    {t.missing}: {item.missing.map(g => g.lastName).join(', ')}
                   </div>
                 )}
               </div>
@@ -379,12 +489,12 @@ export default function GuestInsights() {
       </Section>
 
       {/* ── AI Insights ── */}
-      <Section icon="🤖" title="AI Insights (analisi avanzata)" badge="Claude AI" badgeColor="#8b5cf6">
+      <Section icon="🤖" title={t.aiTitle} badge="Claude AI" badgeColor="#8b5cf6">
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
-          Genera un'analisi AI approfondita dei dati ospiti con suggerimenti operativi per coordinare fornitori, trasporti e logistica.
+          {t.aiDesc}
         </p>
         <button className="btn btn-primary" onClick={generateAI} disabled={aiLoading} style={{ marginBottom: 12 }}>
-          {aiLoading ? '⏳ Analisi AI in corso...' : '🔍 Genera Insights AI'}
+          {aiLoading ? t.aiBtnLoading : t.aiBtn}
         </button>
         {aiError && <AlertBadge type="danger">{aiError}</AlertBadge>}
         {aiInsights && (

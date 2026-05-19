@@ -446,6 +446,107 @@ function groupByArrivalDate(guests) {
   return byDate;
 }
 
+// ── Helper: AI translation to Italian ──
+// Translates any English content (dietary restrictions, special requests, mobility needs, etc.)
+// while preserving formatting, names, numbers, dates, emojis, and structure
+async function translateEmailToItalian(emailText) {
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return emailText; // fallback: return as-is
+
+    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    const client = new Anthropic({ apiKey });
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 8192,
+      messages: [{ role: 'user', content: `Traduci in italiano TUTTO il contenuto di questa email che è ancora in inglese. In particolare traduci:
+- Restrizioni alimentari (es. "Kosher" → "Kosher", "Gluten free" → "Senza glutine", "No pork" → "No maiale", "Vegetarian" → "Vegetariano", "Dairy free" → "Senza latticini", "Low sodium" → "Iposodico", ecc.)
+- Esigenze di mobilità (es. "Wheelchair" → "Sedia a rotelle", "Limited mobility" → "Mobilità ridotta", "Walker needed" → "Necessita deambulatore", ecc.)
+- Richieste speciali (es. "Early check-in" → "Check-in anticipato", "High floor" → "Piano alto", "Extra pillows" → "Cuscini extra", "Connecting rooms" → "Camere comunicanti", ecc.)
+- Info mediche, note, commenti, qualsiasi altra frase in inglese
+- Nomi di ruoli come "Companion" → "Accompagnatore", "Guest" → "Ospite"
+
+NON modificare:
+- Nomi e cognomi delle persone
+- Numeri, date, orari
+- Emoji e simboli (★, ↑, ═, ─, ecc.)
+- Codici volo (LH402, UA123, ecc.)
+- Codici aeroporto (FCO, JFK, EWR, ecc.)
+- La struttura e formattazione del testo (spazi, allineamento, newline)
+- Ciò che è già in italiano
+
+Rispondi SOLO con il testo tradotto, nessun commento aggiuntivo.
+
+TESTO DA TRADURRE:
+${emailText}` }]
+    });
+
+    return response.content[0]?.text || emailText;
+  } catch (err) {
+    console.error('Translation error:', err.message);
+    return emailText; // fallback
+  }
+}
+
+// ── Helper: translate guest data fields to Italian (batch) ──
+async function translateGuestFields(guests) {
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return guests;
+
+    // Collect all unique English strings to translate
+    const fieldsToTranslate = {};
+    for (const g of guests) {
+      if (g.dietaryRestrictions && !['none','n/a','no','nessuna'].includes(g.dietaryRestrictions.toLowerCase().trim())) {
+        fieldsToTranslate[g.dietaryRestrictions] = '';
+      }
+      if (g.mobilityNeeds && !['none','n/a','no','nessuna'].includes(g.mobilityNeeds.toLowerCase().trim())) {
+        fieldsToTranslate[g.mobilityNeeds] = '';
+      }
+      if (g.specialRequests) fieldsToTranslate[g.specialRequests] = '';
+      if (g.medicalInfo && !['none','n/a','no','nessuna'].includes(g.medicalInfo.toLowerCase().trim())) {
+        fieldsToTranslate[g.medicalInfo] = '';
+      }
+      if (g.hotelUpgrade) fieldsToTranslate[g.hotelUpgrade] = '';
+    }
+
+    const keys = Object.keys(fieldsToTranslate);
+    if (keys.length === 0) return guests;
+
+    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    const client = new Anthropic({ apiKey });
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: `Traduci in italiano ciascuna delle seguenti frasi. Sono dati relativi a ospiti di un evento (allergie, esigenze, richieste hotel, ecc.).
+Mantieni "Kosher" come "Kosher" (termine universale). Rispondi SOLO con un JSON object dove le chiavi sono le frasi originali e i valori sono le traduzioni.
+
+Frasi da tradurre:
+${JSON.stringify(keys, null, 2)}` }]
+    });
+
+    let text = response.content[0]?.text || '{}';
+    // Strip markdown code blocks
+    text = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+    const translations = JSON.parse(text);
+
+    // Apply translations to guest copies
+    return guests.map(g => ({
+      ...g,
+      dietaryRestrictions: g.dietaryRestrictions && translations[g.dietaryRestrictions] ? translations[g.dietaryRestrictions] : g.dietaryRestrictions,
+      mobilityNeeds: g.mobilityNeeds && translations[g.mobilityNeeds] ? translations[g.mobilityNeeds] : g.mobilityNeeds,
+      specialRequests: g.specialRequests && translations[g.specialRequests] ? translations[g.specialRequests] : g.specialRequests,
+      medicalInfo: g.medicalInfo && translations[g.medicalInfo] ? translations[g.medicalInfo] : g.medicalInfo,
+      hotelUpgrade: g.hotelUpgrade && translations[g.hotelUpgrade] ? translations[g.hotelUpgrade] : g.hotelUpgrade,
+    }));
+  } catch (err) {
+    console.error('Field translation error:', err.message);
+    return guests; // fallback
+  }
+}
+
 // ══════════════════════════════════════════
 // POST generate Meet & Greet email
 // Info utili: giorno, orario, compagnia, n.volo, n.persone
@@ -520,6 +621,7 @@ router.post('/email/meet-greet', async (req, res) => {
       ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\n\nGrazie,\nCordiali saluti`
       : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\n\nThank you,\nBest regards`;
 
+    if (it) t = await translateEmailToItalian(t);
     res.json({ email: t, guestCount: guests.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -613,6 +715,7 @@ router.post('/email/transportation', async (req, res) => {
       ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\nGiorni di trasferimento: ${Object.keys(byDate).length}\n\nGrazie,\nCordiali saluti`
       : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\nTransfer days: ${Object.keys(byDate).length}\n\nThank you,\nBest regards`;
 
+    if (it) t = await translateEmailToItalian(t);
     res.json({ email: t, guestCount: guests.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -696,6 +799,7 @@ router.post('/email/restaurant', async (req, res) => {
       ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\nCon restrizioni: ${withDiet.length} | Senza restrizioni: ${guests.length - withDiet.length}\n\nGrazie,\nCordiali saluti`
       : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\nWith restrictions: ${withDiet.length} | No restrictions: ${guests.length - withDiet.length}\n\nThank you,\nBest regards`;
 
+    if (it) t = await translateEmailToItalian(t);
     res.json({ email: t, guestCount: guests.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -768,31 +872,55 @@ router.post('/email/hotel', async (req, res) => {
       }
     }
 
-    // Full participant list
+    // Full participant list with special needs
     t += `═══════════════════════════════════\n`;
     t += `📋 ${it ? 'LISTA COMPLETA PARTECIPANTI' : 'FULL PARTICIPANT LIST'}\n`;
     t += `═══════════════════════════════════\n\n`;
 
-    const nameH = (it ? 'Partecipante' : 'Participant').padEnd(28);
-    const roleH = (it ? 'Ruolo' : 'Role').padEnd(16);
-    const roomH = (it ? 'Camera' : 'Room').padEnd(20);
+    const nameH = (it ? 'Partecipante' : 'Participant').padEnd(26);
+    const roomH = (it ? 'Camera' : 'Room').padEnd(18);
     const ciH = 'Check-in'.padEnd(12);
-    const coH = 'Check-out';
-    t += `${nameH} ${roleH} ${roomH} ${ciH} ${coH}\n`;
-    t += `${'─'.repeat(28)} ${'─'.repeat(16)} ${'─'.repeat(20)} ${'─'.repeat(12)} ${'─'.repeat(12)}\n`;
+    const coH = 'Check-out'.padEnd(12);
+    const noteH = it ? 'Esigenze / Note' : 'Needs / Notes';
+    t += `${nameH} ${roomH} ${ciH} ${coH} ${noteH}\n`;
+    t += `${'─'.repeat(26)} ${'─'.repeat(18)} ${'─'.repeat(12)} ${'─'.repeat(12)} ${'─'.repeat(30)}\n`;
 
     for (const g of guests) {
       const ci = g.checkInDate ? new Date(g.checkInDate).toISOString().split('T')[0] : 'TBD';
       const co = g.checkOutDate ? new Date(g.checkOutDate).toISOString().split('T')[0] : 'TBD';
-      const room = (g.roomType || 'TBD').substring(0, 19);
-      const mainLabel = it ? '★ Ospite' : '★ Guest';
-      t += `${`${g.firstName} ${g.lastName}`.substring(0,27).padEnd(28)} ${mainLabel.padEnd(16)} ${room.padEnd(20)} ${ci.padEnd(12)} ${co}\n`;
+      const room = (g.roomType || 'TBD').substring(0, 17);
+
+      // Collect special needs for this guest
+      const needs = [];
+      if (g.specialRequests) needs.push(g.specialRequests);
+      if (g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim())) needs.push(`♿ ${g.mobilityNeeds}`);
+      if (g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim())) needs.push(`🍽️ ${g.dietaryRestrictions}`);
+      if (g.hotelUpgrade) needs.push(`⬆️ ${g.hotelUpgrade}`);
+      const noteStr = needs.length > 0 ? needs.join('; ').substring(0, 50) + (needs.join('; ').length > 50 ? '...' : '') : '-';
+
+      t += `★ ${`${g.firstName} ${g.lastName}`.substring(0,23).padEnd(24)} ${room.padEnd(18)} ${ci.padEnd(12)} ${co.padEnd(12)} ${noteStr}\n`;
 
       if (g.companions?.length) {
-        const compLabel = it ? 'Accompagnatore' : 'Companion';
         for (const c of g.companions) {
-          t += `${(c.fullName || '').substring(0,27).padEnd(28)} ${compLabel.padEnd(16)} ${'↑'.padEnd(20)} ${'↑'.padEnd(12)} ${'↑'}\n`;
+          t += `  ${(c.fullName || '').substring(0,23).padEnd(24)} ${'↑'.padEnd(18)} ${'↑'.padEnd(12)} ${'↑'.padEnd(12)} ${'↑'}\n`;
         }
+      }
+    }
+
+    // Highlight guests with special needs
+    const withNeeds = guests.filter(g =>
+      g.specialRequests || g.hotelUpgrade ||
+      (g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim())) ||
+      (g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim()))
+    );
+    if (withNeeds.length > 0) {
+      t += `\n⚠️ ${it ? 'ESIGENZE SPECIALI DA EVIDENZIARE' : 'SPECIAL NEEDS TO HIGHLIGHT'}:\n\n`;
+      for (const g of withNeeds) {
+        t += `  ★ ${g.firstName} ${g.lastName}:\n`;
+        if (g.specialRequests) t += `    📝 ${it ? 'Richieste' : 'Requests'}: ${g.specialRequests}\n`;
+        if (g.hotelUpgrade) t += `    ⬆️ Upgrade: ${g.hotelUpgrade}\n`;
+        if (g.mobilityNeeds && !['none','n/a','no'].includes(g.mobilityNeeds.toLowerCase().trim())) t += `    ♿ ${it ? 'Mobilità' : 'Mobility'}: ${g.mobilityNeeds}\n`;
+        if (g.dietaryRestrictions && !['none','n/a','no'].includes(g.dietaryRestrictions.toLowerCase().trim())) t += `    🍽️ ${it ? 'Dieta' : 'Diet'}: ${g.dietaryRestrictions}\n`;
       }
     }
 
@@ -801,7 +929,24 @@ router.post('/email/hotel', async (req, res) => {
       ? `Totale partecipanti: ${totalPeople}\nOspiti principali: ${guests.length} | Accompagnatori: ${totalPeople - guests.length}\nCamere totali: ${totalRooms}\n\nGrazie,\nCordiali saluti`
       : `Total participants: ${totalPeople}\nPrimary guests: ${guests.length} | Companions: ${totalPeople - guests.length}\nTotal rooms: ${totalRooms}\n\nThank you,\nBest regards`;
 
+    if (it) t = await translateEmailToItalian(t);
     res.json({ email: t, guestCount: guests.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// TRANSLATE GUEST FIELDS
+// ============================================================
+router.post('/translate-fields', async (req, res) => {
+  try {
+    const guests = await prisma.guest.findMany({
+      include: { companions: true, flights: true },
+      orderBy: { lastName: 'asc' }
+    });
+    const translated = await translateGuestFields(guests);
+    res.json(translated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
